@@ -80,7 +80,7 @@ export default function MapPage() {
       <div className={styles.sectionHead}>
         <h2 className={styles.sectionTitle}>Map of Agents</h2>
         <span className={styles.sectionMeta}>
-          {sellers} agent{sellers === 1 ? '' : 's'} · {graph.purchases} purchase
+          {sellers} seller agent{sellers === 1 ? '' : 's'} · {graph.purchases} purchase
           {graph.purchases === 1 ? '' : 's'} · {graph.links.length} edge
           {graph.links.length === 1 ? '' : 's'}
         </span>
