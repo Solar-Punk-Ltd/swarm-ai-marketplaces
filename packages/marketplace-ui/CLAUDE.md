@@ -391,6 +391,12 @@ naming it `VITE_POSTAGE_BATCH_ID` would publish it, permanently.
 A deploy is immutable and content-addressed: re-deploying mints a new address rather than replacing
 the old one, and the old one stays retrievable for as long as its stamp lives. There is no unpublish.
 
+**The stable address is a feed.** With `SWARM_FEED_PK` set, every deploy also writes its reference
+to one feed (that key's address + `SWARM_FEED_TOPIC`) and prints the feed manifest and its ENS
+contenthash (`0xe40101fa011b20<ref>`). The feed manifest depends only on owner and topic, so the ENS
+name is set once and every later deploy moves it with no ENS transaction. The key and the topic
+name are part of that address: change either and the contenthash must be set again.
+
 **`/claim-wallet` is the one that must not 404.** It is reached by a phone scanning a QR code: a
 cold GET straight at a deep path, with no client-side code running to recover, in front of an
 audience. Verify that path on the actual deploy target before the demo — not the nav, which works

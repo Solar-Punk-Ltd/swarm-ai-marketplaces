@@ -30,14 +30,22 @@
  *   as long as its stamp lives. Every `VITE_*` value compiled into the bundle is frozen at
  *   that address too — see the pre-flight warnings below.
  *
+ * **A stable address comes from a feed, not from the upload.** With `SWARM_FEED_PK` set, each
+ * deploy also writes its reference as the next update of one feed — fixed owner (that key),
+ * fixed topic (`SWARM_FEED_TOPIC`) — and prints the feed manifest over it. The feed manifest's
+ * reference is a function of owner and topic alone, so it never changes: set it as the ENS
+ * contenthash once, and every later deploy moves the name by moving the feed, with no ENS
+ * transaction. Losing or rotating the key means a new feed, a new manifest and a new contenthash.
+ *
  * Configuration comes from the environment or `.env`, deliberately **without** a `VITE_`
  * prefix: Vite inlines every `VITE_*` var into the bundle, and a postage batch id is a
- * spending credential. Vite ignores these three, which is the point of the naming.
+ * spending credential — a feed signer key even more so. Vite ignores these, which is the point
+ * of the naming.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Bee } from '@ethersphere/bee-js';
+import { Bee, PrivateKey, Topic } from '@ethersphere/bee-js';
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DIST_DIR = join(PACKAGE_ROOT, 'dist');
@@ -48,6 +56,20 @@ const DEFAULT_SUBDOMAIN_GATEWAY = 'bzz.link';
 const DEFAULT_PATH_GATEWAY = 'https://api.gateway.ethswarm.org';
 /** A non-deferred upload waits for the whole collection to reach the network. Minutes, on a light node. */
 const DEFAULT_TIMEOUT_MS = 600_000;
+/**
+ * Hashed to the feed topic. Changing it forks the feed, and with it the ENS contenthash — it is
+ * part of the stable address, not a label.
+ */
+const DEFAULT_FEED_TOPIC = 'swarm-ai-marketplace-ui';
+
+/**
+ * ENS contenthash for a Swarm manifest (EIP-1577): swarm-ns codec `0xe4`, CIDv1 `0x01`,
+ * swarm-manifest codec `0xfa 0x01`, keccak-256 multihash `0x1b` of length `0x20`, then the
+ * 32-byte reference. This is the value the ENS resolver's `setContenthash` takes.
+ */
+function ensContenthash(reference) {
+  return `0xe40101fa011b20${reference}`;
+}
 
 function fail(message, ...detail) {
   console.error(`\n✗ ${message}`);
@@ -162,6 +184,8 @@ async function main() {
   const pathGateway = (process.env.SWARM_PATH_GATEWAY ?? DEFAULT_PATH_GATEWAY).replace(/\/+$/, '');
   const deferred = process.env.SWARM_DEFERRED === 'true';
   const timeout = Number(process.env.SWARM_UPLOAD_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
+  const feedKey = process.env.SWARM_FEED_PK || undefined;
+  const feedTopicName = process.env.SWARM_FEED_TOPIC || DEFAULT_FEED_TOPIC;
 
   if (!existsSync(DIST_DIR) || !existsSync(join(DIST_DIR, 'index.html'))) {
     fail('No build to deploy.', `Expected ${join(DIST_DIR, 'index.html')}.`, 'Run `pnpm build`.');
@@ -179,6 +203,13 @@ async function main() {
   if (!Number.isFinite(timeout) || timeout < 1000) {
     fail('SWARM_UPLOAD_TIMEOUT_MS must be a number >= 1000.');
   }
+  let feedSigner;
+  if (feedKey) {
+    if (!/^(0x)?[0-9a-f]{64}$/i.test(feedKey)) {
+      fail('SWARM_FEED_PK must be a 32-byte hex private key.');
+    }
+    feedSigner = new PrivateKey(feedKey.replace(/^0x/i, ''));
+  }
 
   const files = walk(DIST_DIR);
   const totalBytes = files.reduce((sum, file) => sum + statSync(file).size, 0);
@@ -188,6 +219,11 @@ async function main() {
   console.log(`  Batch      : ${batchId}`);
   console.log(
     `  Mode       : ${deferred ? 'deferred (returns before the network has it)' : 'synchronous'}`,
+  );
+  console.log(
+    feedSigner
+      ? `  Feed       : ${feedSigner.publicKey().address().toChecksum()} / "${feedTopicName}"`
+      : '  Feed       : none (SWARM_FEED_PK unset) — this deploy gets an address of its own only',
   );
 
   for (const warning of preflightWarnings()) console.warn(`  ! ${warning}`);
@@ -271,10 +307,52 @@ async function main() {
   console.log('    name is never gated — that is the only free route to an ungated URL.\n');
   console.log(`    Approve this one: https://bzz.link/forbidden?hash=${reference}\n`);
 
+  if (feedSigner)
+    await publishToFeed(bee, batchId, feedSigner, feedTopicName, reference, beeApiUrl);
+
   if (deferred) {
     console.log('  Uploaded in deferred mode: the node still has to push this to the network.');
     console.log('  Check the public URL before relying on it.\n');
   }
+}
+
+/**
+ * Point the stable feed at this deploy, and print the feed manifest that ENS should hold.
+ *
+ * Runs after the upload has already succeeded and been printed, so a failure here still leaves
+ * a usable immutable deploy — the message says so rather than implying nothing happened.
+ *
+ * `createFeedManifest` is re-run every deploy on purpose. Its content depends only on owner and
+ * topic, so it re-uploads identical chunks to the identical reference: cheap, idempotent, and it
+ * keeps the manifest alive on whatever batch is currently being used, rather than on the one
+ * that happened to be live on the first deploy.
+ */
+async function publishToFeed(bee, batchId, signer, topicName, reference, beeApiUrl) {
+  const topic = Topic.fromString(topicName);
+  const owner = signer.publicKey().address();
+
+  let manifest;
+  try {
+    await bee.makeFeedWriter(topic, signer).uploadReference(batchId, reference);
+    manifest = await bee.createFeedManifest(batchId, topic, owner, { pin: true });
+  } catch (err) {
+    fail(
+      'The deploy above succeeded, but updating the feed failed.',
+      describe(err),
+      'The immutable URLs above work; the ENS name still serves the previous deploy.',
+    );
+  }
+
+  const manifestRef = manifest.toHex();
+  console.log('  Stable feed (this is what ENS should point at):');
+  console.log(`    Owner       : ${owner.toChecksum()}`);
+  console.log(`    Topic       : "${topicName}" → ${topic.toHex()}`);
+  console.log(`    Manifest    : ${manifestRef}`);
+  console.log(`    Contenthash : ${ensContenthash(manifestRef)}`);
+  console.log(`\n  ${beeApiUrl}/bzz/${manifestRef}/`);
+  console.log('    Resolves to the latest deploy. The manifest never changes while the key and');
+  console.log('    topic do not, so the ENS contenthash is set once — a redeploy needs no ENS');
+  console.log('    transaction. Gateways may cache the feed lookup briefly after an update.\n');
 }
 
 main().catch((err) => {
