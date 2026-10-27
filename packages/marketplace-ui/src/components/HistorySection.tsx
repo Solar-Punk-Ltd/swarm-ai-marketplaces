@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useMarketplace } from '../context/MarketplaceContext';
 import HistoryTable from './HistoryTable';
+import OperatorDetails from './OperatorDetails';
 import styles from './styles.module.css';
 
 type Filter = 'all' | 'purchase' | 'payout';
@@ -26,9 +27,11 @@ export default function HistorySection() {
     <section className={styles.section}>
       <div className={styles.sectionHead}>
         <h2 className={styles.sectionTitle}>Activity</h2>
+        {/* "Most recent", because the Map shows a period-filtered count of the same events and
+            the two numbers must not read as contradicting each other. */}
         <span className={styles.sectionMeta}>
-          {history.entries.length} event{history.entries.length === 1 ? '' : 's'} · {purchases}{' '}
-          purchase{purchases === 1 ? '' : 's'}
+          {purchases} purchase{purchases === 1 ? '' : 's'} in the {history.entries.length} most
+          recent event{history.entries.length === 1 ? '' : 's'}
         </span>
       </div>
 
@@ -47,9 +50,11 @@ export default function HistorySection() {
 
       {history.partial && (
         <div className={styles.banner}>
-          History is incomplete — the log sweep was cut short, so older activity is missing. Lower
-          VITE_LOG_CHUNK_BLOCKS, raise VITE_IDENTITY_REGISTRY_FROM_BLOCK, or use an RPC that allows
-          wider ranges.
+          Some older activity could not be loaded and is missing below.
+          <OperatorDetails>
+            The log sweep was cut short. Lower VITE_LOG_CHUNK_BLOCKS, raise
+            VITE_IDENTITY_REGISTRY_FROM_BLOCK, or use an RPC that allows wider ranges.
+          </OperatorDetails>
         </div>
       )}
 
@@ -63,7 +68,7 @@ export default function HistorySection() {
               ? 'No purchases or payouts in the scanned window yet.'
               : `No ${filter === 'purchase' ? 'purchases' : 'payouts'} in the scanned window.`
           }
-          initial={12}
+          initial={8}
         />
       )}
     </section>

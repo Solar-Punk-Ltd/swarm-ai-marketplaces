@@ -1,7 +1,7 @@
 /* Shared visual primitives. All colours come from --mp-* custom properties stamped by theme.ts. */
 
 .page {
-  max-width: 1100px;
+  max-width: 1180px;
   margin: 0 auto;
   padding: 2rem 1rem 4rem;
 }
@@ -17,11 +17,26 @@
   margin-bottom: 2rem;
 }
 
+/* Eyebrow over the wordmark, as on every deck: orange, monospace, widely tracked. */
+.eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-family: var(--mp-mono);
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--mp-accent);
+  margin-bottom: 10px;
+}
+
 .title {
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: -0.015em;
-  margin-bottom: 6px;
+  font-family: var(--mp-mono);
+  font-size: clamp(24px, 3.4vw, 36px);
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  margin-bottom: 10px;
 }
 
 .titleAccent {
@@ -29,22 +44,53 @@
 }
 
 .subtitle {
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 1.5;
   color: var(--mp-text-muted);
 }
 
 .headerRight {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-end;
   gap: 0.75rem;
-  flex-wrap: wrap;
-  justify-content: flex-end;
 }
 
 /* ---- keyframes ---------------------------------------------------------- */
 
 /* These must stay in this module, never in index.css: CSS Modules rewrites `animation-name` to a
    hashed local name, which only resolves against keyframes compiled in the same module. */
+
+/* The decks' "playing" dot. */
+@keyframes mp-beat {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.3;
+    transform: scale(0.68);
+  }
+}
+
+/* A packet travelling the How-it-works lane, left to right. */
+@keyframes mp-travel {
+  0% {
+    left: 0%;
+    opacity: 0;
+  }
+  6% {
+    opacity: 1;
+  }
+  94% {
+    opacity: 1;
+  }
+  100% {
+    left: 100%;
+    opacity: 0;
+  }
+}
 
 @keyframes mp-pulse {
   0%,
@@ -61,7 +107,7 @@
 .card {
   background: var(--mp-surface);
   border: 1px solid var(--mp-border);
-  border-radius: 12px;
+  border-radius: 3px;
   padding: 1.25rem 1.35rem;
 }
 
@@ -78,16 +124,19 @@
 }
 
 .sectionTitle {
+  font-family: var(--mp-mono);
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
+  font-weight: 600;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--mp-text-muted);
 }
 
 .sectionMeta {
-  font-size: 12px;
-  color: var(--mp-text-muted);
+  font-family: var(--mp-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--mp-text-faint);
   font-variant-numeric: tabular-nums;
 }
 
@@ -96,29 +145,41 @@
 .stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 1px;
-  background: var(--mp-border);
-  border: 1px solid var(--mp-border);
-  border-radius: 10px;
-  overflow: hidden;
   margin-top: 1rem;
+  border-top: 1px solid var(--mp-border);
 }
 
+/* Figures sit straight on the card, divided by hairlines — a filled tile under bright numbers was
+   too much contrast on the dark backdrop. */
 .stat {
-  background: var(--mp-surface-raised);
-  padding: 0.8rem 0.95rem;
+  padding: 0.85rem 1rem 0.1rem 0;
+}
+
+.stat + .stat {
+  padding-left: 1rem;
+  border-left: 1px solid var(--mp-border);
+}
+
+@media (max-width: 720px) {
+  .stat + .stat {
+    padding-left: 0;
+    border-left: none;
+    border-top: 1px solid var(--mp-border);
+  }
 }
 
 .statLabel {
+  font-family: var(--mp-mono);
   font-size: 10px;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--mp-text-muted);
   margin-bottom: 0.35rem;
 }
 
 .statValue {
-  font-size: 19px;
+  font-family: var(--mp-mono);
+  font-size: 20px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
@@ -144,8 +205,8 @@
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 13px;
+  font-family: var(--mp-mono);
+  font-size: 12.5px;
   white-space: nowrap;
 }
 
@@ -155,7 +216,8 @@
   text-transform: uppercase;
   color: var(--mp-text-muted);
   margin-right: 0.15rem;
-  font-family: system-ui, sans-serif;
+  letter-spacing: 0.16em;
+  color: var(--mp-text-faint);
 }
 
 .iconButton {
@@ -165,7 +227,7 @@
   width: 22px;
   height: 22px;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 3px;
   background: transparent;
   color: var(--mp-text-muted);
   cursor: pointer;
@@ -191,7 +253,7 @@
 .sellerCard {
   background: var(--mp-surface);
   border: 1px solid var(--mp-border);
-  border-radius: 12px;
+  border-radius: 3px;
   padding: 1rem 1.15rem;
   margin-bottom: 0.75rem;
 }
@@ -199,6 +261,56 @@
 .sellerCardSkipped {
   border-color: var(--mp-danger);
   box-shadow: inset 3px 0 0 var(--mp-danger);
+}
+
+.sellerEarned {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.25rem;
+  margin-left: auto;
+}
+
+.sellerEarnedValue {
+  text-align: right;
+}
+
+.accruedLive {
+  color: var(--mp-accent);
+}
+
+.sellerDetails {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+/* The decks' ledger: monospace key/value rows on dotted rules. */
+.ledger {
+  margin: 0;
+  font-family: var(--mp-mono);
+  font-size: 11.5px;
+}
+
+.ledgerRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px dotted var(--mp-surface-raised);
+}
+
+.ledgerRow dt {
+  color: var(--mp-text-faint);
+  letter-spacing: 0.04em;
+}
+
+.ledgerRow dd {
+  margin: 0;
+  color: var(--mp-text);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .sellerTop {
@@ -233,7 +345,7 @@
   padding: 0.75rem 0.9rem;
   background: var(--mp-surface-raised);
   border: 1px solid var(--mp-border);
-  border-radius: 9px;
+  border-radius: 3px;
 }
 
 .splitterFacts {
@@ -243,9 +355,19 @@
   flex-wrap: wrap;
 }
 
+/* Small uppercase caption naming what a figure is (seller wallet vs. splitter revenue). */
+.balanceLabel {
+  font-family: var(--mp-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--mp-text-faint);
+}
+
 .accrued {
+  font-family: var(--mp-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 600;
 }
 
@@ -262,10 +384,12 @@
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
+  font-family: var(--mp-mono);
   font-size: 11px;
   font-weight: 600;
+  letter-spacing: 0.02em;
   padding: 0.22rem 0.5rem;
-  border-radius: 999px;
+  border-radius: 2px;
   border: 1px solid var(--mp-border-strong);
   color: var(--mp-text-muted);
   white-space: nowrap;
@@ -273,20 +397,28 @@
 
 .pillAccent {
   color: var(--mp-accent);
-  border-color: transparent;
+  border-color: color-mix(in srgb, var(--mp-accent) 45%, transparent);
+  border-style: dashed;
   background: var(--mp-accent-soft);
 }
 
 .pillWarn {
   color: var(--mp-warning);
   border-color: transparent;
-  background: var(--mp-accent-soft);
+  background: var(--mp-warning-soft);
 }
 
 .pillDanger {
   color: var(--mp-danger);
   border-color: transparent;
   background: var(--mp-danger-soft);
+}
+
+/* A state, not an action: present but not clickable (e.g. "Catalog unavailable"). */
+.pillMuted {
+  color: var(--mp-text-muted);
+  border-style: dashed;
+  cursor: help;
 }
 
 .pillLink {
@@ -324,14 +456,15 @@
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  padding: 0.5rem 0.95rem;
-  border-radius: 8px;
+  padding: 0.5rem 0.9rem;
+  border-radius: 2px;
   border: 1px solid var(--mp-border-strong);
-  background: var(--mp-surface-raised);
+  background: transparent;
   color: var(--mp-text);
-  font-size: 12px;
+  font-family: var(--mp-mono);
+  font-size: 11.5px;
   font-weight: 600;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.06em;
   cursor: pointer;
   transition:
     background 120ms ease,
@@ -352,7 +485,7 @@
 .buttonPrimary {
   background: var(--mp-accent);
   border-color: var(--mp-accent);
-  color: #0b0d10;
+  color: var(--mp-bg);
 }
 
 .buttonPrimary:hover:not(:disabled) {
@@ -403,15 +536,16 @@
   color: var(--mp-text-muted);
   font-size: 13px;
   border: 1px dashed var(--mp-border-strong);
-  border-radius: 12px;
+  border-radius: 3px;
 }
 
 .banner {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 0.6rem;
   padding: 0.65rem 0.9rem;
-  border-radius: 9px;
+  border-radius: 3px;
   font-size: 12px;
   margin-bottom: 1rem;
   border: 1px solid var(--mp-border-strong);
@@ -427,7 +561,7 @@
 .bannerWarn {
   color: var(--mp-warning);
   border-color: transparent;
-  background: var(--mp-accent-soft);
+  background: var(--mp-warning-soft);
 }
 
 .fatal {
@@ -435,7 +569,7 @@
   margin: 4rem auto;
   padding: 1.5rem;
   border: 1px solid var(--mp-danger);
-  border-radius: 12px;
+  border-radius: 3px;
   background: var(--mp-danger-soft);
 }
 
@@ -467,10 +601,11 @@
 }
 
 .historyFilter {
+  font-family: var(--mp-mono);
   font-size: 11px;
-  font-weight: 600;
+  letter-spacing: 0.06em;
   padding: 0.28rem 0.65rem;
-  border-radius: 999px;
+  border-radius: 2px;
   border: 1px solid var(--mp-border-strong);
   background: var(--mp-surface);
   color: var(--mp-text-muted);
@@ -482,16 +617,17 @@
 }
 
 .historyFilterOn {
-  background: var(--mp-accent-soft);
+  background: var(--mp-accent);
   border-color: var(--mp-accent);
-  color: var(--mp-text);
+  color: var(--mp-bg);
+  font-weight: 600;
 }
 
 .historyTable {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--mp-border);
-  border-radius: 12px;
+  border-radius: 3px;
   overflow: hidden;
   background: var(--mp-surface);
 }
@@ -512,12 +648,13 @@
 }
 
 .historyKind {
+  font-family: var(--mp-mono);
   font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-weight: 600;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   padding: 0.2rem 0.45rem;
-  border-radius: 999px;
+  border-radius: 2px;
   text-align: center;
 }
 
@@ -532,6 +669,7 @@
 }
 
 .historyAmount {
+  font-family: var(--mp-mono);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   color: var(--mp-text);
@@ -557,19 +695,24 @@
 }
 
 .historySplit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   font-variant-numeric: tabular-nums;
   font-size: 11px;
 }
 
 .historyWhen {
-  color: var(--mp-text-muted);
+  font-family: var(--mp-mono);
+  color: var(--mp-text-faint);
   font-variant-numeric: tabular-nums;
   text-align: right;
   font-size: 11px;
 }
 
 .historyTx {
-  color: var(--mp-text-muted);
+  font-family: var(--mp-mono);
+  color: var(--mp-text-faint);
   font-size: 11px;
   text-decoration: none;
   text-align: right;
@@ -585,11 +728,13 @@
   color: var(--mp-text-muted);
   font-size: 12px;
   border: 1px solid var(--mp-border);
-  border-radius: 12px;
+  border-radius: 3px;
   background: var(--mp-surface);
 }
 
 .historyMore {
+  font-family: var(--mp-mono);
+  letter-spacing: 0.06em;
   padding: 0.5rem;
   border: none;
   border-top: 1px solid var(--mp-border);
@@ -604,13 +749,41 @@
   color: var(--mp-text);
 }
 
+/* Folded-away rows, e.g. splitters with no agent linked. Reads as part of the list, not as an action bar. */
+.foldToggle {
+  font-family: var(--mp-mono);
+  letter-spacing: 0.04em;
+  width: 100%;
+  padding: 0.7rem 1rem;
+  margin-top: 0.75rem;
+  border: 1px dashed var(--mp-border-strong);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--mp-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.foldToggle:hover {
+  color: var(--mp-text);
+  border-color: var(--mp-text-muted);
+}
+
 /* per-seller drilldown */
 
 .historyToggleRow {
   margin-top: 0.6rem;
 }
 
+.sellerCard > .historyToggle {
+  margin-top: 0.55rem;
+}
+
 .historyToggle {
+  font-family: var(--mp-mono);
+  letter-spacing: 0.06em;
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -630,7 +803,7 @@
 .historyCount {
   font-variant-numeric: tabular-nums;
   padding: 0.1rem 0.4rem;
-  border-radius: 999px;
+  border-radius: 2px;
   background: var(--mp-surface-raised);
   border: 1px solid var(--mp-border);
 }
@@ -642,6 +815,11 @@
   .historyWhen {
     display: none;
   }
+  /* Once a card's action wraps under its address it sits on its own line; right-aligning it
+     inside a column sized by the wider note below left the button floating mid-card. */
+  .actionCell {
+    align-items: flex-start;
+  }
 }
 
 /* ---- map of agents ------------------------------------------------------ */
@@ -649,16 +827,22 @@
 .nav {
   display: flex;
   gap: 0.4rem;
+  /* One line on a phone: tabs scroll sideways rather than wrapping into two-line buttons. */
+  overflow-x: auto;
+  scrollbar-width: none;
   margin-bottom: 1.5rem;
   border-bottom: 1px solid var(--mp-border);
   padding-bottom: 0.75rem;
 }
 
 .navItem {
-  font-size: 12px;
-  font-weight: 600;
-  padding: 0.35rem 0.8rem;
-  border-radius: 999px;
+  white-space: nowrap;
+  flex: none;
+  font-family: var(--mp-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  padding: 0.45rem 0.8rem;
+  border-radius: 2px;
   border: 1px solid var(--mp-border-strong);
   background: var(--mp-surface);
   color: var(--mp-text-muted);
@@ -670,14 +854,16 @@
 }
 
 .navItemOn {
-  background: var(--mp-accent-soft);
+  background: var(--mp-accent);
   border-color: var(--mp-accent);
-  color: var(--mp-text);
+  color: var(--mp-bg);
+  font-weight: 600;
 }
 
 .graphCanvas {
   border: 1px solid var(--mp-border);
-  border-radius: 12px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.015);
+  border-radius: 3px;
   overflow: hidden;
   background: var(--mp-surface);
 }
@@ -685,10 +871,12 @@
 .graphLegend {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.9rem;
   margin-bottom: 0.6rem;
-  font-size: 11px;
+  font-family: var(--mp-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
   color: var(--mp-text-muted);
 }
 
@@ -699,20 +887,38 @@
 }
 
 .legendDot {
-  width: 9px;
-  height: 9px;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid;
   border-radius: 50%;
+  background: var(--mp-bg);
 }
 
 .legendHint {
   margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.15rem;
+  text-align: right;
+}
+
+.legendHint summary {
+  cursor: pointer;
+  color: var(--mp-text-faint);
+}
+
+.legendHint[open] summary {
+  margin-bottom: 0.2rem;
 }
 
 .nodeDetail {
   margin-top: 0.75rem;
   padding: 0.85rem 1rem;
   border: 1px solid var(--mp-border-strong);
-  border-radius: 12px;
+  border-radius: 3px;
   background: var(--mp-surface-raised);
 }
 
@@ -728,6 +934,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 0.7rem 1rem;
+  font-family: var(--mp-mono);
   font-size: 11px;
   color: var(--mp-text-muted);
 }
@@ -752,7 +959,7 @@
   flex-direction: column;
   margin-top: 1rem;
   border: 1px solid var(--mp-border);
-  border-radius: 12px;
+  border-radius: 3px;
   overflow: hidden;
   background: var(--mp-surface);
 }
@@ -760,8 +967,8 @@
 .agentHead,
 .agentRow {
   display: grid;
-  /* agent | in | out | txs | peers | pending — the name takes the slack. */
-  grid-template-columns: minmax(0, 1fr) 96px 96px 54px 58px 104px;
+  /* agent | in | out | purchases | partners | pending — the name takes the slack. */
+  grid-template-columns: minmax(0, 1fr) 96px 96px 84px 76px 104px;
   align-items: center;
   gap: 0.75rem;
   padding: 0.55rem 0.9rem;
@@ -782,9 +989,10 @@
 }
 
 .agentHeadCell {
+  font-family: var(--mp-mono);
   font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  font-weight: 600;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--mp-text-muted);
   background: none;
@@ -834,7 +1042,15 @@
   min-width: 0;
 }
 
+.agentWho {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
 .agentLabel {
+  font-family: var(--mp-mono);
   font-weight: 600;
   color: var(--mp-text);
   overflow: hidden;
@@ -843,13 +1059,15 @@
 }
 
 .agentRole {
+  font-family: var(--mp-mono);
   font-size: 10px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--mp-text-muted);
+  color: var(--mp-text-faint);
 }
 
 .agentNumeric {
+  font-family: var(--mp-mono);
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -857,7 +1075,7 @@
 @media (max-width: 720px) {
   .agentHead,
   .agentRow {
-    grid-template-columns: minmax(0, 1fr) 84px 54px 88px;
+    grid-template-columns: minmax(0, 1fr) 84px 72px 88px;
   }
   .agentHeadCell:nth-child(3),
   .agentHeadCell:nth-child(5),
@@ -917,7 +1135,7 @@
   flex: 0 0 auto;
   display: flex;
   background: var(--mp-text);
-  border-radius: 10px;
+  border-radius: 3px;
   padding: 0.5rem;
 }
 
@@ -934,7 +1152,7 @@
 .claimCard {
   background: var(--mp-surface);
   border: 1px solid var(--mp-border);
-  border-radius: 12px;
+  border-radius: 3px;
   padding: 1.25rem 1.35rem;
   max-width: 52rem;
 }
@@ -1111,12 +1329,19 @@
   line-height: 1.5;
 }
 
+.claimLink {
+  color: var(--mp-accent);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
 /* Tabular figures so the countdown does not reflow the sentence every second. */
 .claimCountdown {
   display: inline-block;
   margin-right: 0.4rem;
   padding: 0.1rem 0.35rem;
-  border-radius: 5px;
+  border-radius: 3px;
   background: var(--mp-surface-raised);
   color: var(--mp-text);
   font-variant-numeric: tabular-nums;
@@ -1136,7 +1361,7 @@
   margin: 0.25rem 0 1rem;
   padding: 0.9rem 1rem;
   border: 1px solid var(--mp-accent);
-  border-radius: 10px;
+  border-radius: 3px;
   background: var(--mp-accent-soft);
 }
 
@@ -1161,7 +1386,7 @@
   padding: 0.6rem 0.7rem;
   max-height: 11rem;
   overflow: auto;
-  border-radius: 7px;
+  border-radius: 3px;
   background: var(--mp-surface);
   color: var(--mp-text);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -1171,4 +1396,600 @@
   overflow-wrap: anywhere;
   /* Tapping the code selects all of it, for anyone who reaches past the copy button. */
   user-select: all;
+}
+
+/* ── How it works (Dashboard intro) ────────────────────────────────────────── */
+
+.how {
+  position: relative;
+  border: 1px solid var(--mp-border);
+  border-radius: 3px;
+  background: var(--mp-surface);
+  padding: 1.1rem 1.25rem 1.2rem;
+  margin-bottom: 2rem;
+}
+
+.howHead {
+  /* Clear of the corner toggle. */
+  padding-right: 3rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.1rem;
+}
+
+.howTitle {
+  margin: 0;
+  font-family: var(--mp-mono);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.howTitle em {
+  font-style: normal;
+  color: var(--mp-accent);
+}
+
+/* Collapse toggle: top-right corner, a full 34px target. */
+.howToggle {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.7rem;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--mp-border-strong);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--mp-text-muted);
+  cursor: pointer;
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.howToggle:hover {
+  color: var(--mp-accent);
+  border-color: var(--mp-accent);
+}
+
+.howToggle svg {
+  transition: transform 0.25s ease;
+}
+
+/* Open: the arrow points up, the way the section goes when pressed. */
+.howToggleOpen {
+  transform: rotate(180deg);
+}
+
+.howCollapsed {
+  padding-top: 1.1rem;
+  padding-bottom: 1.1rem;
+  padding-right: 4rem;
+}
+
+/* One lane: a track under the node centres, lit up to the active step, with a packet on it.
+   Under the row rather than through it, so it never crosses a label. */
+.howLane {
+  position: relative;
+  padding-bottom: 20px;
+}
+
+.howTrack {
+  position: absolute;
+  left: 10%;
+  right: 10%;
+  bottom: 6px;
+  height: 2px;
+  background: var(--mp-border);
+}
+
+.howTrack::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  /* --how-at is the packet's position across the whole lane; the track starts at 10%. */
+  width: calc((var(--how-at) - 10%) / 0.8);
+  background: var(--mp-accent);
+  transition: width 1.125s ease;
+}
+
+.howPacket {
+  position: absolute;
+  bottom: 1px;
+  left: var(--how-at);
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  border-radius: 50%;
+  background: var(--mp-accent);
+  box-shadow:
+    0 0 0 4px var(--mp-accent-soft),
+    0 0 18px var(--mp-accent);
+  transition: left 1.125s ease;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.howSteps {
+  position: relative;
+  z-index: 1;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+/* Spacing as padding, not grid gap: equal columns with no gap put each node's centre at exactly
+   (i + 0.5) / 5 of the lane, which is where the packet is placed. */
+.howSteps > li {
+  padding: 0 0.7rem;
+}
+
+.howNode {
+  --how-c: var(--mp-accent);
+  --how-soft: var(--mp-accent-soft);
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--how-c);
+  border-radius: 3px;
+  background: var(--mp-surface);
+  color: var(--mp-text);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.375s ease,
+    background 0.375s ease,
+    box-shadow 0.375s ease;
+}
+
+/* Waiting steps are dimmed by their contents and border, never by box opacity. */
+.howNode:not(.howNodeOn) {
+  border-color: color-mix(in srgb, var(--how-c) 40%, transparent);
+}
+
+.howNode:not(.howNodeOn) > span {
+  opacity: 0.55;
+}
+
+.howNode:hover > span {
+  opacity: 0.9;
+}
+
+/* Layer colours, as on the roadmap stack: Swarm orange, ERC-8004 mint, x402 sky, contracts lavender. */
+.howNodeSwarm {
+  --how-c: var(--mp-accent);
+  --how-soft: var(--mp-accent-soft);
+}
+
+.howNodeIdentity {
+  --how-c: var(--mp-mint);
+  --how-soft: var(--mp-mint-soft);
+}
+
+.howNodePayment {
+  --how-c: var(--mp-sky);
+  --how-soft: var(--mp-sky-soft);
+}
+
+.howNodeContract {
+  --how-c: var(--mp-lav);
+  --how-soft: var(--mp-lav-soft);
+}
+
+.howNodeOn {
+  background: var(--how-soft);
+  box-shadow: 0 0 0 1px var(--how-c);
+}
+
+.howNodeTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 0.15rem;
+}
+
+/* The step's icon takes its layer colour. */
+.howNodeIcon {
+  display: inline-flex;
+  color: var(--how-c);
+}
+
+.howNodeNum {
+  font-family: var(--mp-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.17em;
+  color: var(--mp-text-faint);
+}
+
+.howNodeTitle {
+  font-family: var(--mp-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--how-c);
+}
+
+.howNodeTag {
+  font-family: var(--mp-mono);
+  font-size: 10px;
+  color: var(--mp-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* The reputation deck's caption: one sentence, orange-tinted, centred. */
+.howCaption {
+  margin: 1rem 0 0;
+  padding: 0.7rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--mp-accent) 32%, transparent);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--mp-accent) 7.5%, transparent);
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--mp-text);
+}
+
+.howCaptionStep {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  /* Nodes are ~40px wide here: icon only, the name moves into the caption. */
+  .howNodeTitle {
+    display: none;
+  }
+  .howNode {
+    padding-top: 0.6rem;
+    padding-bottom: 0.6rem;
+  }
+  .howCaptionStep {
+    display: block;
+    margin-bottom: 0.2rem;
+    font-family: var(--mp-mono);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--mp-accent);
+  }
+  .howSteps > li {
+    padding: 0 0.18rem;
+  }
+  .howNode {
+    padding: 0.5rem 0.35rem;
+    align-items: center;
+  }
+  .howNodeTag,
+  .howNodeNum {
+    display: none;
+  }
+  .howNodeTop {
+    justify-content: center;
+  }
+  .howCaption {
+    font-size: 13px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .howPacket,
+  .howTrack::after,
+  .howNode {
+    transition: none;
+  }
+}
+
+/* ── Header testnet marker and Dashboard footer ─────────────────────────── */
+
+.footer {
+  margin-top: 2.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--mp-border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1.5rem;
+  align-items: center;
+  font-size: 11px;
+  color: var(--mp-text-muted);
+}
+
+.footer a {
+  color: var(--mp-accent);
+  text-decoration: none;
+}
+
+/* Operator-only detail under a user-facing banner (env var names, RPC advice). */
+.bannerDetails {
+  margin-top: 0.35rem;
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.bannerDetails summary {
+  cursor: pointer;
+}
+
+/* ── Role labels and agent avatars ──────────────────────────────────────── */
+
+/* "Buyer agent" / "Seller agent" over an icon, on hover, focus or tap. */
+.roleTip {
+  position: relative;
+  display: inline-flex;
+  cursor: pointer;
+  border-radius: 50%;
+}
+
+.roleTip:focus {
+  outline: none;
+}
+
+.roleTip:focus-visible {
+  outline: 2px solid var(--mp-accent);
+  outline-offset: 2px;
+}
+
+.roleTip:hover::after,
+.roleTip:focus::after {
+  content: attr(data-tip);
+  position: absolute;
+  /* Beside the icon, not above it: the Activity table clips overflow, which would cut a label
+     off above its first row. */
+  top: 50%;
+  left: calc(100% + 6px);
+  transform: translateY(-50%);
+  z-index: 5;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--mp-border-strong);
+  border-radius: 2px;
+  background: var(--mp-bg);
+  color: var(--mp-text);
+  font-family: var(--mp-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* An agent's own picture, cropped round and ringed in the seller colour like its stall. */
+.agentAvatar {
+  flex: none;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 0 0 1.5px var(--mp-seller);
+  background: var(--mp-surface-raised);
+}
+
+/* Credit line, top right of every page, in the header. */
+.credit {
+  margin: 0;
+  text-align: right;
+  font-family: var(--mp-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--mp-text-faint);
+}
+
+.credit a {
+  color: var(--mp-text-muted);
+  text-decoration: none;
+}
+
+.credit a:hover {
+  color: var(--mp-accent);
+}
+
+/* ── JSON document viewer (JsonDocumentDialog) ───────────────────────── */
+
+.catalogDialog {
+  margin: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--mp-text);
+  /* It can be rendered inside a pill (the Agent Card link sits in AgentBadge), and a top-layer
+     dialog still inherits from its DOM parent: reset what a pill sets. */
+  font-family: var(--mp-sans);
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: normal;
+  text-align: left;
+  width: min(760px, calc(100vw - 32px));
+  max-height: min(80vh, 720px);
+}
+
+.catalogDialog::backdrop {
+  background: color-mix(in srgb, var(--mp-bg) 70%, transparent);
+  backdrop-filter: blur(4px);
+}
+
+.catalogPanel {
+  display: flex;
+  flex-direction: column;
+  max-height: min(80vh, 720px);
+  border: 1px solid var(--mp-border-strong);
+  border-radius: 3px;
+  background: var(--mp-bg);
+  box-shadow: 0 24px 60px color-mix(in srgb, var(--mp-bg) 85%, transparent);
+}
+
+.catalogHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.15rem 0.85rem;
+  border-bottom: 1px solid var(--mp-border);
+}
+
+.catalogKicker {
+  font-family: var(--mp-mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--mp-accent);
+  margin-bottom: 0.35rem;
+}
+
+.catalogTitle {
+  margin: 0;
+  font-family: var(--mp-mono);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.catalogClose {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--mp-border-strong);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--mp-text-muted);
+  cursor: pointer;
+}
+
+.catalogClose:hover {
+  color: var(--mp-accent);
+  border-color: var(--mp-accent);
+}
+
+.catalogBody {
+  overflow: auto;
+  padding: 0.9rem 1.15rem;
+  min-height: 120px;
+}
+
+.catalogNote {
+  margin: 0;
+  font-family: var(--mp-mono);
+  font-size: 12px;
+  color: var(--mp-text-muted);
+}
+
+.catalogFoot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.7rem 1.15rem;
+  border-top: 1px solid var(--mp-border);
+  font-family: var(--mp-mono);
+  font-size: 11px;
+}
+
+.catalogRaw {
+  color: var(--mp-text-muted);
+  text-decoration: none;
+}
+
+.catalogRaw:hover {
+  color: var(--mp-accent);
+}
+
+/* JSON(-LD) highlighting (JsonView). */
+.json {
+  margin: 0;
+  font-family: var(--mp-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre;
+  color: var(--mp-text);
+  tab-size: 2;
+}
+
+/* JSON-LD keywords — @context, @type, @id — set apart from ordinary fields. */
+.jsonKeyword {
+  color: var(--mp-lav);
+  font-weight: 600;
+}
+
+.jsonKey {
+  color: var(--mp-sky);
+}
+
+/* The namespace of a compact IRI (`swarm-cat:`), dimmed so the field name leads. */
+.jsonPrefix {
+  color: var(--mp-text-faint);
+}
+
+.jsonString {
+  color: var(--mp-mint);
+}
+
+.jsonNumber {
+  color: var(--mp-warning);
+}
+
+.jsonLiteral {
+  color: var(--mp-text-muted);
+  font-style: italic;
+}
+
+.jsonPunct {
+  color: var(--mp-text-faint);
+}
+
+@media (max-width: 720px) {
+  /* Wrap long values on a phone rather than scroll the document sideways. */
+  .json {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* A failed load: the reason, and a way to try again. */
+.catalogError {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+/* Three dots pulsing in turn: work in progress, not a stall. */
+.loadingDots {
+  display: inline-flex;
+  gap: 4px;
+  margin-right: 0.6rem;
+  vertical-align: middle;
+}
+
+.loadingDots > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mp-accent);
+  animation: mp-beat 1.1s ease-in-out infinite;
+}
+
+.loadingDots > span:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.loadingDots > span:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loadingDots > span {
+    animation: none;
+  }
 }

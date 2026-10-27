@@ -13,6 +13,10 @@ import { totalPending } from '../lib/reads';
 import { volumeOf } from '../lib/graph';
 import type { GraphNode } from '../lib/graph';
 import { formatAmount } from './Balance';
+import type { AgentLink } from '../lib/agents';
+import AgentFace from './AgentFace';
+import { BuyerIcon, TreasuryIcon } from './icons';
+import RoleTip from './RoleTip';
 import styles from './styles.module.css';
 
 type SortKey = 'label' | 'in' | 'out' | 'tx' | 'peers' | 'pending';
@@ -33,6 +37,30 @@ function roleLabel(node: GraphNode): string {
   return parts.join(' · ') || '—';
 }
 
+/** The participant as the film draws it: stall for a seller, robot for a buyer, vault for the treasury. */
+function RoleIcon({ node, link }: { node: GraphNode; link: AgentLink | undefined }) {
+  if (node.roles.has('treasury')) {
+    return (
+      <RoleTip interactive={false} label="Marketplace treasury">
+        <TreasuryIcon size={24} />
+      </RoleTip>
+    );
+  }
+  if (node.roles.has('seller')) {
+    const linked = node.agentId !== undefined;
+    return (
+      <RoleTip interactive={false} label={linked ? 'Seller agent' : 'Seller · no agent linked'}>
+        <AgentFace link={link} size={24} muted={!linked} />
+      </RoleTip>
+    );
+  }
+  return (
+    <RoleTip interactive={false} label="Buyer agent">
+      <BuyerIcon size={24} />
+    </RoleTip>
+  );
+}
+
 export interface AgentTableProps {
   nodes: GraphNode[];
   selectedId?: string;
@@ -40,8 +68,9 @@ export interface AgentTableProps {
 }
 
 export default function AgentTable({ nodes, selectedId, onSelect }: AgentTableProps) {
-  const { balances } = useMarketplace();
+  const { balances, agentLinks } = useMarketplace();
   const [sort, setSort] = useState<SortKey>('in');
+  const [showBuyers, setShowBuyers] = useState(false);
 
   // Read inside the component, never at module scope: `config` is undefined when the app is
   // misconfigured, and App must be able to render its ConfigFailure page instead of crashing.
@@ -50,9 +79,14 @@ export default function AgentTable({ nodes, selectedId, onSelect }: AgentTablePr
   const columns: Column[] = [
     { key: 'label', label: 'Agent', numeric: false },
     { key: 'in', label: `In (${settlement.symbol})`, numeric: true, title: 'Received in period' },
-    { key: 'out', label: `Out (${settlement.symbol})`, numeric: true, title: 'Sent in period' },
-    { key: 'tx', label: 'Txs', numeric: true, title: 'Purchases in period' },
-    { key: 'peers', label: 'Peers', numeric: true, title: 'Distinct counterparties' },
+    {
+      key: 'out',
+      label: `Out (${settlement.symbol})`,
+      numeric: true,
+      title: 'Sent in period. For a seller this is the tax its splitter forwarded to the treasury.',
+    },
+    { key: 'tx', label: 'Purchases', numeric: true, title: 'Purchases in period' },
+    { key: 'peers', label: 'Partners', numeric: true, title: 'Distinct trading partners' },
     {
       key: 'pending',
       label: `Pending (${settlement.symbol})`,
@@ -95,6 +129,18 @@ export default function AgentTable({ nodes, selectedId, onSelect }: AgentTablePr
     return [...nodes].sort((a, b) => compare(a, b) || a.id.localeCompare(b.id));
   }, [nodes, sort, balances, settlement.symbol]);
 
+  /**
+   * Plain buyer wallets — no agent, no splitter — are folded behind a toggle. On a demo they are
+   * dozens of identical one-purchase rows that bury the agents. A selected buyer stays visible so
+   * a click on the canvas always has a row to highlight.
+   */
+  const isBareBuyer = (node: GraphNode) =>
+    node.agentId === undefined && !node.roles.has('seller') && !node.roles.has('treasury');
+  const buyerCount = rows.filter(isBareBuyer).length;
+  const shown = showBuyers
+    ? rows
+    : rows.filter((node) => !isBareBuyer(node) || node.id === selectedId);
+
   if (nodes.length === 0) return null;
 
   return (
@@ -116,7 +162,7 @@ export default function AgentTable({ nodes, selectedId, onSelect }: AgentTablePr
         ))}
       </div>
 
-      {rows.map((node) => (
+      {shown.map((node) => (
         <button
           key={node.id}
           type="button"
@@ -124,9 +170,17 @@ export default function AgentTable({ nodes, selectedId, onSelect }: AgentTablePr
           className={`${styles.agentRow} ${node.id === selectedId ? styles.agentRowOn : ''}`}
           onClick={() => onSelect(node.id === selectedId ? undefined : node)}
         >
-          <span className={styles.agentName}>
-            <span className={styles.agentLabel}>{node.label}</span>
-            <span className={styles.agentRole}>{roleLabel(node)}</span>
+          <span className={styles.agentWho}>
+            <RoleIcon
+              node={node}
+              link={
+                node.splitter ? agentLinks.bySplitter.get(node.splitter.toLowerCase()) : undefined
+              }
+            />
+            <span className={styles.agentName}>
+              <span className={styles.agentLabel}>{node.label}</span>
+              <span className={styles.agentRole}>{roleLabel(node)}</span>
+            </span>
           </span>
           <span className={styles.agentNumeric}>
             {formatAmount(volumeOf(node.volumeIn, settlement.symbol), settlement)}
@@ -141,6 +195,19 @@ export default function AgentTable({ nodes, selectedId, onSelect }: AgentTablePr
           </span>
         </button>
       ))}
+
+      {buyerCount > 0 && (
+        <button
+          type="button"
+          className={styles.historyMore}
+          onClick={() => setShowBuyers((v) => !v)}
+          aria-expanded={showBuyers}
+        >
+          {showBuyers
+            ? 'Hide buyer wallets'
+            : `Show ${buyerCount} buyer wallet${buyerCount === 1 ? '' : 's'}`}
+        </button>
+      )}
     </div>
   );
 }

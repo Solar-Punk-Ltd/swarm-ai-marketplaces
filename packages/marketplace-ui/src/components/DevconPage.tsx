@@ -12,6 +12,11 @@ import styles from './styles.module.css';
  * — a scan that fails on stage is recoverable if the address is readable, and it makes a QR
  * pointing at localhost obvious before anyone tries it.
  */
+/** `https://bzz.limo/bzz/ff5fe9…3e70/claim-wallet` — any 64-hex reference in the path is elided. */
+function shortUrl(url: string): string {
+  return url.replace(/\b([0-9a-f]{6})[0-9a-f]{54}([0-9a-f]{4})\b/i, '$1…$2');
+}
+
 export default function DevconPage() {
   const base = config.demoFlowBaseUrl ?? window.location.origin;
   const claimWalletUrl = `${base}${href('claim-wallet')}`;
@@ -23,12 +28,15 @@ export default function DevconPage() {
       </div>
       <div className={`${styles.card} ${styles.qrCard}`}>
         <div className={styles.qrCopy}>
-          <p className={styles.qrLead}>Scan the QR code and navigate to the page in order to:</p>
+          <p className={styles.qrLead}>Scan with your phone camera</p>
           <p className={styles.qrOutcome}>
-            Create a buyer agent that purchases a funded wallet from a seller agent.
+            Get your own AI agent. It finds a seller agent, pays it over x402 and buys you a funded
+            Swarm wallet — live, on-chain, in about a minute.
           </p>
-          <a className={styles.qrUrl} href={claimWalletUrl}>
-            {claimWalletUrl}
+          {/* Still printed so a failed scan is recoverable by typing, but shortened: the full
+              /bzz/<64-hex>/ path is unreadable from the back of a room. Full value in `title`. */}
+          <a className={styles.qrUrl} href={claimWalletUrl} title={claimWalletUrl}>
+            {shortUrl(claimWalletUrl)}
           </a>
         </div>
 

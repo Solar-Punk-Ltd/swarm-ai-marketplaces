@@ -1,34 +1,60 @@
 /**
  * Colour tokens. Single source of truth — never inline a hex value in a component or CSS module.
  *
- * The first four are lifted verbatim from erc8004-dashboard/src/index.css and App.tsx, which has
- * no token file of its own. Everything after them is a marketplace-ui addition, derived from that
- * base so the two dashboards stay visually reconcilable.
+ * The palette follows the Solar Punk film and decks and the claim page's buyer-agent animation
+ * (see CLAUDE.md → Theme). The token names match erc8004-dashboard's so the two remain easy to
+ * reconcile.
  */
 export const theme = {
-  // ── from erc8004-dashboard ────────────────────────────────────────────────
-  bg: '#0b0d10',
-  text: '#f1ede4',
-  accent: '#f5a524',
-  textMuted: '#a9a397',
+  // ── base ──────────────────────────────────────────────────────────────────
+  // Neutral, slightly cool greys over the Solar Punk film's backdrop: near-black, with a warm
+  // maroon glow low on the left and a slate-blue one on the right (see `index.css`). Hue is
+  // reserved for the glows and for meaning — orange for Swarm and money waiting, the layer colours
+  // below — so surfaces and text stay grey.
+  bg: '#0c0b10',
+  text: '#eeedf2',
+  accent: '#f9822c',
+  textMuted: '#a3a1ad',
 
   // ── marketplace-ui additions ──────────────────────────────────────────────
-  surface: '#12151a',
-  surfaceRaised: '#181c22',
-  border: '#242932',
-  borderStrong: '#333a45',
-  accentSoft: 'rgba(245, 165, 36, 0.12)',
-  success: '#5cc98a',
-  successSoft: 'rgba(92, 201, 138, 0.12)',
-  danger: '#e5674f',
-  dangerSoft: 'rgba(229, 103, 79, 0.12)',
-  warning: '#e0b341',
-  skeleton: '#1c2027',
+  /** The backdrop's warm glow, bottom-left. */
+  bgGlowWarm: 'rgba(122, 38, 44, 0.42)',
+  /** The backdrop's cool glow, right. */
+  bgGlowCool: 'rgba(52, 60, 96, 0.38)',
+  /** Translucent, so the glows read through cards the way they do through the film's frames. */
+  surface: 'rgba(22, 21, 28, 0.78)',
+  surfaceRaised: 'rgba(34, 33, 42, 0.82)',
+  border: '#2b2a33',
+  borderStrong: '#3c3a46',
+  /** Captions, kickers and other text one step quieter than `textMuted`. */
+  textFaint: '#6f6d7a',
+  accentSoft: 'rgba(249, 130, 44, 0.12)',
+  /**
+   * Every seller representation: the stall's robot and stripes, the avatar ring, the map's seller
+   * nodes, the claim animation's seller. Amber, halfway between Swarm orange (`accent`) and the
+   * stall's yellow stripe (`warning`) — familiar from the stall, but never mistaken for Swarm.
+   */
+  seller: '#f59d33',
+  success: '#3fd67e',
+  successSoft: 'rgba(63, 214, 126, 0.13)',
+  danger: '#ef7480',
+  dangerSoft: 'rgba(239, 116, 128, 0.13)',
+  warning: '#f0b73a',
+  warningSoft: 'rgba(240, 183, 58, 0.13)',
+  // The decks' layer colours: ERC-8004 is mint, x402 rails sky, agents lavender. The How-it-works
+  // flow uses them so each step reads as the same layer it is on the roadmap stack.
+  mint: '#3fd6a4',
+  mintSoft: 'rgba(63, 214, 164, 0.12)',
+  sky: '#58a8e8',
+  skySoft: 'rgba(88, 168, 232, 0.12)',
+  lav: '#b9a4f0',
+  lavSoft: 'rgba(185, 164, 240, 0.12)',
+  skeleton: '#24232c',
 
   // Map of Agents edges. Dimmed derivations of accent/success: on a dense canvas the edges are
   // background, and node labels have to stay readable over them.
-  linkPurchase: 'rgba(245, 165, 36, 0.55)',
-  linkPayout: 'rgba(92, 201, 138, 0.45)',
+  linkPurchase: 'rgba(249, 130, 44, 0.5)',
+  linkPayout: 'rgba(63, 214, 126, 0.45)',
 } as const;
 
 export type ThemeToken = keyof typeof theme;

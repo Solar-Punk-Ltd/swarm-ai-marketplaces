@@ -17,6 +17,18 @@ export interface DistributeButtonProps {
  * is deliberate: `distribute` is permissionless so a seller never needs to hold gas to receive
  * revenue, and never depends on the operator to reach their funds either.
  */
+/** Why a funded clone cannot be swept from this browser right now. */
+export function blockedReason(
+  available: boolean,
+  account: string | undefined,
+  wrongChain: boolean,
+): string {
+  if (!available) return 'Needs a browser wallet to distribute';
+  if (!account) return 'Connect a wallet to distribute';
+  if (wrongChain) return 'Switch network to distribute';
+  return '';
+}
+
 export default function DistributeButton({ splitter, funded }: DistributeButtonProps) {
   const { state, busy, distribute } = useDistribute(splitter);
   const { account, wrongChain } = useWallet();

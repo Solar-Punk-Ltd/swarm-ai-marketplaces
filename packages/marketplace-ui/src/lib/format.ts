@@ -15,5 +15,8 @@ export function formatAge(timestamp: number, now: number): string {
   if (seconds < 60) return `${seconds}s ago`;
   const minutes = Math.round(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;
-  return `${Math.round(minutes / 60)}h ago`;
+  const hours = Math.round(minutes / 60);
+  // "140h ago" makes the reader do the division; past a day, days read faster.
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
 }

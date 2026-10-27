@@ -21,6 +21,7 @@ import ForceGraph2D from 'react-force-graph-2d';
 import type { ForceGraphMethods } from 'react-force-graph-2d';
 import { theme } from '../theme';
 import type { GraphLink, GraphNode, NodeRole } from '../lib/graph';
+import { roleSpriteFor } from './roleSprites';
 import styles from './styles.module.css';
 
 const HEIGHT = 520;
@@ -60,6 +61,29 @@ const AVATAR_SPRITE_PX = 96;
  * painted in, so the target stays the same physical size however far out the view is framed.
  */
 const MIN_HIT_RADIUS_PX = 10;
+
+/** On-screen radius, in px, below which a node is drawn as a plain dot rather than its icon. */
+const ICON_MIN_SCREEN_RADIUS = 7;
+
+/**
+ * On-screen radius, in px, that sellers and the treasury never drop below. They are the few
+ * participants the map is about, and `zoomToFit` over a crowd of buyers otherwise shrinks them
+ * to dots too small for their icon. Floored in screen pixels like the hit targets, so it holds at
+ * every zoom; the layout still spaces nodes by `radiusOf`.
+ */
+const MAJOR_MIN_SCREEN_RADIUS = 13;
+
+/** The radius a node is drawn (and hit-tested) at, at this zoom. */
+function drawnRadius(node: GraphNode, globalScale: number): number {
+  const radius = radiusOf(node);
+  // Agents and the treasury, not every splitter: an unclaimed test clone is not who the map is
+  // about, and flooring a crowd of them only piles their discs on top of each other.
+  const major = node.agentId !== undefined || node.roles.has('treasury');
+  return major ? Math.max(radius, MAJOR_MIN_SCREEN_RADIUS / globalScale) : radius;
+}
+
+/** Zoom level above which plain buyer wallets get their address label drawn. */
+const BUYER_LABEL_MIN_SCALE = 2.5;
 
 function radiusOf(node: GraphNode): number {
   // Area-proportional to activity, so a busy agent reads as busier without dwarfing the rest.
@@ -141,7 +165,7 @@ export function colorForRoles(roles: Set<NodeRole>): string {
   const sells = roles.has('seller');
   const buys = roles.has('buyer');
   if (sells && buys) return theme.warning;
-  if (sells) return theme.accent;
+  if (sells) return theme.seller;
   return theme.success;
 }
 
@@ -207,18 +231,11 @@ function toSprite(image: HTMLImageElement): HTMLCanvasElement | null {
 }
 
 /**
- * URLs that will never produce a sprite, so the node can fall back to an identicon rather than
- * waiting forever on an image that is not coming.
- *
- * Separate from `sprites` because the two nulls in that map mean different things: still loading
- * (draw the plain dot, an image may yet land) and permanently failed (draw the identicon). There
- * is still no retry — a card's image is third-party and may simply not be there.
+ * URLs that will never produce a sprite. The node draws its role icon meanwhile either way; this
+ * only stops a dead URL being requested again. There is no retry — a card's image is third-party
+ * and may simply not be there.
  */
 const failedSprites = new Set<string>();
-
-function spriteFailed(url: string): boolean {
-  return failedSprites.has(url);
-}
 
 /**
  * Cache hit, or start one load and report back when it lands. Safe to call from a paint loop:
@@ -248,73 +265,6 @@ function spriteFor(url: string, onLoad: () => void): HTMLCanvasElement | null {
   };
   image.src = url;
   return null;
-}
-
-/**
- * Deterministic fallback face, derived from the node's address.
- *
- * Every Agent Card `createAgentCard` writes carries `DEFAULT_AGENT_IMAGE`, a single Swarm
- * reference (`erc8004-adapter/src/constants.ts`) that is currently unretrievable — the manifest
- * root 404s on the public gateway and on a local Bee alike. One dead reference therefore takes
- * every face on the map with it, which is not a failure mode worth carrying into a demo on
- * conference wifi.
- *
- * An identicon is a picture *of an address*, not a portrait the agent claims, so it does not
- * inherit the "verified only" argument that governs real avatars — but it is still drawn only
- * where a real avatar would have been, so the map makes no identity claim it did not make before.
- *
- * Monochrome on purpose. Hue is spoken for: amber is a seller, green a buyer, warning both, and
- * an identicon in an arbitrary colour would read as a role. Identity lives in the pattern.
- */
-const identicons = new Map<string, HTMLCanvasElement>();
-
-/** FNV-1a. Not a security boundary — just a cheap, stable spread over the address space. */
-function hashSeed(seed: string): number {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < seed.length; i += 1) {
-    hash ^= seed.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash;
-}
-
-/** Side of the identicon grid. Mirrored down the middle, so only 3 columns are drawn. */
-const IDENTICON_CELLS = 5;
-
-function identiconFor(seed: string): HTMLCanvasElement | null {
-  const cached = identicons.get(seed);
-  if (cached) return cached;
-
-  const sprite = document.createElement('canvas');
-  sprite.width = AVATAR_SPRITE_PX;
-  sprite.height = AVATAR_SPRITE_PX;
-  const ctx = sprite.getContext('2d');
-  if (!ctx) return null;
-
-  const half = AVATAR_SPRITE_PX / 2;
-  // Clipped to the same circle as a real sprite, so the ring and the radius floor fit it exactly.
-  ctx.beginPath();
-  ctx.arc(half, half, half, 0, 2 * Math.PI);
-  ctx.clip();
-  ctx.fillStyle = theme.border;
-  ctx.fillRect(0, 0, AVATAR_SPRITE_PX, AVATAR_SPRITE_PX);
-
-  const hash = hashSeed(seed);
-  const cell = AVATAR_SPRITE_PX / IDENTICON_CELLS;
-  const mid = Math.ceil(IDENTICON_CELLS / 2);
-  ctx.fillStyle = theme.textMuted;
-  for (let column = 0; column < mid; column += 1) {
-    for (let row = 0; row < IDENTICON_CELLS; row += 1) {
-      // One bit per cell of the half-grid; 15 cells against 32 bits, so no reuse.
-      if (((hash >>> (column * IDENTICON_CELLS + row)) & 1) === 0) continue;
-      ctx.fillRect(column * cell, row * cell, cell, cell);
-      const mirrored = IDENTICON_CELLS - 1 - column;
-      if (mirrored !== column) ctx.fillRect(mirrored * cell, row * cell, cell, cell);
-    }
-  }
-
-  identicons.set(seed, sprite);
-  return sprite;
 }
 
 /**
@@ -348,6 +298,14 @@ const nodeTooltip = (node: GraphNode): string => {
 
 const linkColor = (link: GraphLink): string =>
   link.kind === 'payout' ? theme.linkPayout : theme.linkPurchase;
+
+/**
+ * Wheel zoom only with Ctrl/⌘ held. A bare wheel over a 520px canvas otherwise zooms the graph
+ * instead of scrolling the page, and a reader scrolling down to the table gets stuck on it.
+ * Trackpad pinch arrives as a wheel event with `ctrlKey` set, so pinch-to-zoom still works.
+ * Module-level so the prop is stable (see "Every canvas prop must be stable").
+ */
+const zoomWithModifier = (event: MouseEvent): boolean => event.ctrlKey || event.metaKey;
 
 const linkWidth = (link: GraphLink): number => Math.min(6, 1 + Math.log2(1 + link.count));
 
@@ -398,6 +356,28 @@ function AgentGraph({ nodes, links, selectedId, onSelect }: AgentGraphProps) {
    * renders from *either* direction.
    */
   const graphData = useMemo(() => ({ nodes, links }), [nodes, links]);
+
+  /**
+   * Re-frame when the set of participants changes size, not only on the first settle.
+   *
+   * The first layout usually runs on the registry alone — history and its buyers arrive a sweep
+   * later — so a fit taken then frames a handful of sellers, and the network that grows out of
+   * it spills off the canvas. A refresh that adds no node still leaves the view alone.
+   */
+  const fittedCount = useRef(0);
+  /**
+   * The engine-stop fit runs while `separateOverlaps` is still pushing buyers apart, so the
+   * network it framed keeps growing past the edges. This asks the separation loop to fit once
+   * more when it has finished, framing the layout that actually stays on screen.
+   */
+  const refitAfterSettle = useRef(false);
+  useEffect(() => {
+    if (nodes.length !== fittedCount.current) {
+      fittedCount.current = nodes.length;
+      fitted.current = false;
+      refitAfterSettle.current = true;
+    }
+  }, [nodes]);
 
   /**
    * Whether force-graph has stopped its own painting since the last data change.
@@ -463,17 +443,22 @@ function AgentGraph({ nodes, links, selectedId, onSelect }: AgentGraphProps) {
     (node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
       const x = node.x ?? 0;
       const y = node.y ?? 0;
-      const radius = radiusOf(node);
-      // An avatar that failed to load falls back to an identicon rather than to a bare dot: the
-      // shared default image is one dead Swarm reference away from blanking every face at once,
-      // and it currently is. A URL still loading stays a dot — it may yet arrive.
-      const loaded = node.avatarUrl ? spriteFor(node.avatarUrl, onAvatarLoad) : null;
-      const sprite =
-        loaded ?? (node.avatarUrl && spriteFailed(node.avatarUrl) ? identiconFor(node.id) : null);
+      const radius = drawnRadius(node, globalScale);
+      // A verified agent's own avatar when it has one. Otherwise — no card image, still loading, or
+      // failed (the shared default image is a dead Swarm reference, so currently always) — the
+      // participant's role icon, as the film draws them: a stall for a seller, a robot for a
+      // buyer, a vault for the treasury. Only once the node is big enough on screen to read; below
+      // that it stays a plain dot, which is what a zoomed-out crowd of buyers needs.
+      const avatar = node.avatarUrl ? spriteFor(node.avatarUrl, onAvatarLoad) : null;
+      const icon =
+        !avatar && radius * globalScale >= ICON_MIN_SCREEN_RADIUS
+          ? roleSpriteFor(node, onAvatarLoad)
+          : null;
+      const sprite = avatar ?? icon;
 
-      if (sprite) {
+      if (avatar) {
         // Pre-clipped to a circle, so this needs no save/clip/restore of its own.
-        ctx.drawImage(sprite, x - radius, y - radius, radius * 2, radius * 2);
+        ctx.drawImage(avatar, x - radius, y - radius, radius * 2, radius * 2);
         // The role used to be the fill, which the avatar has now taken. It becomes the ring rather
         // than being dropped: seller / buyer / both is what the legend promises, and an avatar is
         // no substitute for it — an agent's picture says nothing about which side it trades on.
@@ -482,6 +467,17 @@ function AgentGraph({ nodes, links, selectedId, onSelect }: AgentGraphProps) {
         ctx.strokeStyle = colorOf(node);
         ctx.lineWidth = 2.5 / globalScale;
         ctx.stroke();
+      } else if (icon) {
+        // A disc in the canvas colour with the role ring the legend promises, the icon inside it.
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, 2 * Math.PI);
+        ctx.fillStyle = theme.bg;
+        ctx.fill();
+        ctx.strokeStyle = colorOf(node);
+        ctx.lineWidth = 2 / globalScale;
+        ctx.stroke();
+        const side = radius * 1.45;
+        ctx.drawImage(icon, x - side / 2, y - side / 2, side, side);
       } else {
         ctx.beginPath();
         ctx.arc(x, y, radius, 0, 2 * Math.PI);
@@ -507,10 +503,22 @@ function AgentGraph({ nodes, links, selectedId, onSelect }: AgentGraphProps) {
         ctx.stroke();
       }
 
+      // A one-off buyer's label is a truncated address, and dozens of them around one seller pile
+      // into an unreadable knot that hides the agent names. They are labelled only once zoomed in
+      // far enough to separate them, or when selected; hover still names every node.
+      const isBareBuyer =
+        node.agentId === undefined && !node.roles.has('seller') && !node.roles.has('treasury');
+      if (isBareBuyer && node.id !== selectedId && globalScale < BUYER_LABEL_MIN_SCALE) return;
+
       const fontSize = 11 / globalScale;
-      ctx.font = `${fontSize}px system-ui, sans-serif`;
+      ctx.font = `${fontSize}px ui-monospace, SFMono-Regular, Menlo, monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
+      // A halo in the canvas colour, so a seller's label stays readable over its own fan of edges.
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 3 / globalScale;
+      ctx.strokeStyle = theme.surface;
+      ctx.strokeText(node.label, x, y + radius + 2 / globalScale);
       ctx.fillStyle = node.id === selectedId ? theme.text : theme.textMuted;
       ctx.fillText(node.label, x, y + radius + 2 / globalScale);
     },
@@ -534,7 +542,7 @@ function AgentGraph({ nodes, links, selectedId, onSelect }: AgentGraphProps) {
    */
   const paintPointerArea = useCallback(
     (node: GraphNode, color: string, ctx: CanvasRenderingContext2D, globalScale: number) => {
-      const radius = Math.max(radiusOf(node) + 3, MIN_HIT_RADIUS_PX / globalScale);
+      const radius = Math.max(drawnRadius(node, globalScale) + 3, MIN_HIT_RADIUS_PX / globalScale);
       ctx.beginPath();
       ctx.arc(node.x ?? 0, node.y ?? 0, radius, 0, 2 * Math.PI);
       ctx.fillStyle = color;
@@ -593,7 +601,12 @@ function AgentGraph({ nodes, links, selectedId, onSelect }: AgentGraphProps) {
         }
         settledFrames += 1;
       }
-      if (settledFrames < SETTLE_FRAMES) frame = requestAnimationFrame(step);
+      if (settledFrames < SETTLE_FRAMES) {
+        frame = requestAnimationFrame(step);
+      } else if (refitAfterSettle.current) {
+        refitAfterSettle.current = false;
+        graph.current?.zoomToFit(400, 60);
+      }
     };
     frame = requestAnimationFrame(step);
     return () => cancelAnimationFrame(frame);
@@ -620,6 +633,7 @@ function AgentGraph({ nodes, links, selectedId, onSelect }: AgentGraphProps) {
           onNodeClick={handleClick}
           onBackgroundClick={handleBackgroundClick}
           onEngineStop={handleEngineStop}
+          enableZoomInteraction={zoomWithModifier}
           cooldownTime={4000}
           d3VelocityDecay={0.3}
         />

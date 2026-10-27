@@ -2,10 +2,15 @@ import { useMemo, useState } from 'react';
 import { config } from '../config/env';
 import { txUrl } from '../config/chain';
 import { useMarketplace } from '../context/MarketplaceContext';
+import { agentDisplayName } from '../lib/agents';
 import { formatAge } from '../lib/format';
+import { estimateTimestamp } from '../lib/history';
 import type { HistoryEntry } from '../lib/history';
 import AddressLink from './AddressLink';
 import { formatAmount } from './Balance';
+import AgentFace from './AgentFace';
+import { BuyerIcon, TreasuryIcon } from './icons';
+import RoleTip from './RoleTip';
 import styles from './styles.module.css';
 
 /**
@@ -19,12 +24,43 @@ function useSellerLabel(splitter: string) {
       (s) => s.splitter.toLowerCase() === splitter.toLowerCase(),
     );
     const link = agentLinks.bySplitter.get(splitter.toLowerCase());
-    return { seller: record?.seller, agentName: link?.card?.name, agentId: link?.agentId };
+    return {
+      seller: record?.seller,
+      agentName: link && agentDisplayName(link, agentLinks),
+      link,
+    };
   }, [registry, agentLinks, splitter]);
 }
 
+/**
+ * Relative time. A row whose block time has not been fetched shows an estimate marked with "≈"
+ * rather than a raw block number, which reads as a glitch in a list of "3h ago"s.
+ */
+function When({ entry }: { entry: HistoryEntry }) {
+  const { history } = useMarketplace();
+  const now = Date.now();
+
+  if (entry.timestamp) {
+    return (
+      <span className={styles.historyWhen} title={`Block ${entry.blockNumber}`}>
+        {formatAge(entry.timestamp, now)}
+      </span>
+    );
+  }
+
+  const estimate = estimateTimestamp(entry.blockNumber, history.entries);
+  return (
+    <span
+      className={styles.historyWhen}
+      title={`Block ${entry.blockNumber} — time estimated from the block number`}
+    >
+      {estimate !== undefined ? `≈${formatAge(estimate, now)}` : '…'}
+    </span>
+  );
+}
+
 function HistoryRow({ entry, showSeller }: { entry: HistoryEntry; showSeller: boolean }) {
-  const { seller, agentName, agentId } = useSellerLabel(entry.splitter);
+  const { seller, agentName, link } = useSellerLabel(entry.splitter);
   const href = txUrl(config.chain, entry.txHash);
   const isPurchase = entry.kind === 'purchase';
 
@@ -44,13 +80,20 @@ function HistoryRow({ entry, showSeller }: { entry: HistoryEntry; showSeller: bo
       <span className={styles.historyParties}>
         {isPurchase ? (
           <>
-            {entry.from ? <AddressLink address={entry.from} label="Buyer" /> : <span>—</span>}
+            {/* Who, as the film draws them: a buyer robot pays a seller's stall. The icons carry
+                the roles, so the addresses need no BUYER / SELLER captions. */}
+            <RoleTip label="Buyer agent">
+              <BuyerIcon size={20} />
+            </RoleTip>
+            {entry.from ? <AddressLink address={entry.from} /> : <span>—</span>}
             {showSeller && (
               <>
                 <span className={styles.historyArrow}>→</span>
+                <RoleTip label="Seller agent">
+                  <AgentFace link={link} size={20} />
+                </RoleTip>
                 <span className={styles.historySeller}>
                   {agentName ??
-                    (agentId !== undefined ? `Agent #${agentId}` : undefined) ??
                     (seller ? <AddressLink address={seller} label="Seller" /> : 'Unknown seller')}
                 </span>
               </>
@@ -58,6 +101,9 @@ function HistoryRow({ entry, showSeller }: { entry: HistoryEntry; showSeller: bo
           </>
         ) : (
           <span className={styles.historySplit}>
+            <RoleTip label="Payout · seller and marketplace treasury">
+              <TreasuryIcon size={20} />
+            </RoleTip>
             {entry.sellerAmount !== undefined && entry.treasuryAmount !== undefined && (
               <>
                 {formatAmount(entry.sellerAmount, entry.currency)} seller ·{' '}
@@ -71,9 +117,7 @@ function HistoryRow({ entry, showSeller }: { entry: HistoryEntry; showSeller: bo
         )}
       </span>
 
-      <span className={styles.historyWhen} title={`Block ${entry.blockNumber}`}>
-        {entry.timestamp ? formatAge(entry.timestamp, Date.now()) : `#${entry.blockNumber}`}
-      </span>
+      <When entry={entry} />
 
       {href ? (
         <a
@@ -120,7 +164,7 @@ export default function HistoryTable({
       {shown.map((entry) => (
         // A tx can carry several matching logs, so the hash alone is not unique.
         <HistoryRow
-          key={`${entry.txHash}-${entry.kind}-${entry.splitter}-${entry.amount}`}
+          key={`${entry.blockNumber}-${entry.logIndex}`}
           entry={entry}
           showSeller={showSeller}
         />

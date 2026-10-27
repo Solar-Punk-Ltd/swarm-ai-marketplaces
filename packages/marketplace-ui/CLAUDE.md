@@ -5,7 +5,8 @@ treasury, every seller, every seller's `RevenueSplitter` clone, their balances, 
 **Distribute** action that sweeps a clone's accrued revenue to seller + treasury.
 
 This is an **operator/demo surface**, not a consumer surface. It answers "who is selling, what has
-accrued, and has it been paid out" — it does not browse catalogs, purchase, or touch Swarm. No Bee
+accrued, and has it been paid out" — it does not browse catalog items, purchase, or write to Swarm
+(it does show a seller's catalog document, read-only — see _Catalog link_). No Bee
 code reaches the browser: `@ethersphere/bee-js` is a **devDependency** used by
 `scripts/deploy-swarm.mjs` and by nothing under `src/`. Keep it that way — a Bee import in app code
 is the thing this rule exists to prevent, and Vite would happily bundle it.
@@ -75,29 +76,90 @@ Reviews 01_ its two robots come from. That is an exception to "never inline a he
 the characters are artwork rather than UI. Treat the file as vendored: replace it wholesale with a
 new version from its author rather than editing it in place.
 
+**Two local patches are carried and must survive a replacement**, each marked `LOCAL PATCH`.
+Upstream them to the author; until then, re-apply them to any new version:
+
+- `mount(el, { step, settled: true })` opens directly on `step`'s scene instead of replaying the
+  story from boot (one line in `mount()`).
+- The seller is amber (`C.teal` = `#F59D33`, theme.ts `seller`; was teal `#38C6D9`), so it matches
+  the seller stalls on the Dashboard and the Map of Agents. The key keeps its name; it colours only the seller.
+
 Do not add wagmi, RainbowKit, ethers, Tailwind, or a component library. If a table needs more than
 plain CSS Grid, the design is too complicated.
 
 ## Theme
 
-`erc8004-dashboard` has no design tokens — the palette is hardcoded inline across `App.tsx` and
-`components/`. Extract it here into `src/theme.ts` and use it everywhere; never inline a hex value.
+All colour lives in `src/theme.ts`, stamped onto `:root` as `--mp-*` custom properties; never
+inline a hex value. (`erc8004-dashboard` has no tokens at all — its palette is hardcoded inline.)
 
-| Token       | Value     | Source                                            |
-| ----------- | --------- | ------------------------------------------------- |
-| `bg`        | `#0b0d10` | `erc8004-dashboard/src/index.css` body background |
-| `text`      | `#f1ede4` | body colour                                       |
-| `accent`    | `#f5a524` | "Swarm AI" wordmark amber                         |
-| `textMuted` | `#a9a397` | subtitle colour                                   |
+**The look follows the Solar Punk film _AI Data Marketplaces_, its decks** (the roadmap stack,
+evidence loop and reputation decks) **and the claim page's buyer-agent animation**. Surfaces and
+text are **neutral, slightly cool greys** — not violet: hue is reserved for meaning (Swarm orange,
+the layer colours) and for the backdrop.
 
-Anything beyond those four (surface, border, success, danger) is new — derive it from the base
-palette and add it to `theme.ts` with a comment saying it is a marketplace-ui addition, so the two
-dashboards stay visually reconcilable.
+**The backdrop is the film's**: a near-black `bg` with two large, out-of-focus glows — warm maroon
+low on the left (`bgGlowWarm`), slate blue on the right (`bgGlowCool`) — and a faint film grain,
+all on `body::before` / `body::after` in `index.css`, fixed behind the page. Surfaces are
+translucent so the glows read through them.
 
-Header follows the sibling dashboard's wordmark style: amber `Swarm AI` + cream `Marketplaces`
-(the sibling's second word is `Data Exchange`; this one deliberately differs), with the subtitle changed to describe the current view (e.g. "Marketplace treasury and seller revenue" on
-the Dashboard, "Agents and the payments between them" on the map). The wordmark never changes; the
-nav below it says which view you are on.
+| Token       | Value                    | Role                                 |
+| ----------- | ------------------------ | ------------------------------------ |
+| `bg`        | `#0c0b10`                | near-black page background           |
+| `surface`   | `rgba(22, 21, 28, 0.78)` | cards                                |
+| `border`    | `#2b2a33`                | every box edge                       |
+| `text`      | `#eeedf2`                | body                                 |
+| `textMuted` | `#a3a1ad`                | secondary text                       |
+| `textFaint` | `#6f6d7a`                | kickers, captions, ledger keys       |
+| `accent`    | `#f9822c`                | Swarm orange: wordmark, live revenue |
+| `seller`    | `#f59d33`                | every seller representation          |
+| `mint`      | `#3fd6a4`                | ERC-8004 layer                       |
+| `sky`       | `#58a8e8`                | x402 layer                           |
+| `lav`       | `#b9a4f0`                | contracts / agents layer             |
+
+The token names are unchanged from the sibling's, so the two can still be reconciled. Type is
+two faces (`--mp-mono`, `--mp-sans` in `index.css`): **monospace for names, numbers, labels and
+buttons; sans for sentences.** Corners are square (2–3px), labels are uppercase mono with wide
+tracking, and an active control is filled orange with ink text. A translucent tint of a token is
+written `color-mix(in srgb, var(--mp-accent) 45%, transparent)`, never as an inlined `rgba()`.
+
+**Participants are drawn, as in the film** (`components/icons.tsx`): a round, visored robot with a
+pale, softly lit antenna bulb for a **buyer**, a robot behind an orange-and-yellow striped market stall for a
+**seller**, a vault for the **treasury**, and a line icon per How-it-works step.
+
+- **One colour per role, never per participant.** Every seller is drawn in `seller` amber —
+  stall, avatar ring, map node and legend, and the claim animation's seller. It sits halfway
+  between Swarm orange and the stall's yellow stripe: familiar from the stall, never mistaken for
+  Swarm. Per-seller colours were tried and read as unexplained, since nothing on the
+  Dashboard says what a colour means. Which seller is which is said by its name and its avatar.
+- **A verified agent shows its own avatar** (`AgentFace`) — from its card's `image`, once that
+  image has actually loaded; the stall until then and whenever it fails. Verified only, for the
+  same reason as on the map. A splitter no agent has claimed draws its stall dimmed.
+- **Every icon names its role on hover, focus or tap** (`RoleTip`: "Buyer agent", "Seller agent",
+  "Marketplace treasury"). A `title` tooltip does not show on a phone; `RoleTip` is focusable so a
+  tap shows it. Inside the map table's row buttons it is hover-only (`interactive={false}`), since
+  a focusable element nested in a button is invalid and the row states the role in words.
+- Icons colour themselves only through `--mp-*` tokens; `roleSprites.tsx` turns the same
+  components into canvas images (see Map of Agents).
+
+**Show one thing at a time.** The decks put a single caption on screen rather than paragraphs, and
+the dashboard follows that: the How-it-works lane shows one step's sentence, a seller card shows
+only its face, agent, catalog, revenue to distribute and the Distribute button, and everything
+else (addresses, seller wallet, tax rate, split, activity) sits behind "details" as a ledger of
+dotted key/value rows. Operator advice under a banner is folded into "Details for operators". The
+How-it-works lane plays by itself (4.5s a step) with no play/pause control; clicking a step holds
+it for 12s, and a 34px arrow button in its top-right corner collapses it. Before adding visible
+text, ask whether it can be a tooltip, a fold, an icon, or nothing.
+
+Figures sit straight on their card, divided by hairlines — never on a filled tile, which made
+bright numbers too contrasty against the dark backdrop. Nothing on a seller card is highlighted
+for being funded: the orange "to distribute" amount is the only signal, and it is labelled.
+
+Header: a mono eyebrow carrying the chain and a `testnet` marker, then the wordmark — orange
+`Swarm AI` + cream `Marketplaces` (the sibling's second word is `Data Exchange`; this one
+deliberately differs) — then a subtitle describing the current view (e.g. "Marketplace treasury and
+seller revenue" on the Dashboard, "Agents and the payments between them" on the map). The wordmark
+never changes; the nav below it says which view you are on. There is **no live/refresh indicator**: it said nothing a reader acts on. A failed refresh
+still shows, as `StaleBanner`.
 
 A 2D canvas context cannot read `var(--mp-*)`, so `AgentGraph.tsx` imports `theme` from
 `theme.ts` and uses the values directly. That is the sanctioned form of "never inline a hex", not
@@ -203,6 +265,22 @@ loop therefore bumps `layoutEpoch` on its first quiet frame, re-identifying `dra
 notifies a redraw) and `paintPointerArea` (which flushes the shadow canvas). Once per settle, never
 per frame.
 
+**Plain buyers are unlabelled until zoomed in.** A one-off buyer's label is a truncated address,
+and dozens of them around a seller made an unreadable knot over the agent names. `drawNode` skips
+the label for a node with no agent, seller or treasury role below `BUYER_LABEL_MIN_SCALE`, unless
+it is selected; the hover tooltip still names it. The table under the map folds the same rows
+behind a "Show N buyer wallets" toggle.
+
+**Wheel zoom needs Ctrl/⌘.** `enableZoomInteraction` is the module-level `zoomWithModifier`, so a
+bare wheel scrolls the page instead of trapping the reader on the canvas. Trackpad pinch arrives as
+a wheel event with `ctrlKey` set, so it still zooms.
+
+**Re-fit when the node count changes, after the separation loop settles.** The first layout runs
+on the registry alone and buyers arrive a sweep later, so a fit taken once frames a handful of
+sellers and the network spills off the canvas. A change in node count re-arms both the engine-stop
+fit and a second `zoomToFit` when `separateOverlaps` finishes, because that loop keeps spreading
+buyers after the engine stops. A refresh that adds no node still leaves the view alone.
+
 **Hit targets are floored in screen pixels, not graph units.** The drawn radius is in graph units
 and shrinks with the zoom, and `zoomToFit` frames the whole network — which leaves a one-purchase
 buyer around 3px. `paintPointerArea` divides `MIN_HIT_RADIUS_PX` by `globalScale` so the target
@@ -236,23 +314,29 @@ Three more consequences of putting a face on a node, all deliberate:
   by default and a settled canvas has stopped painting — re-identifying `nodeCanvasObject` is that
   nudge, and unlike re-applying `graphData` it does not restart the layout.
 
-**A failed avatar falls back to an identicon, not to a dot.** `createAgentCard` defaults `image`
-to `DEFAULT_AGENT_IMAGE` (`erc8004-adapter/src/constants.ts`) — one Swarm reference shared by
-every agent it has ever registered. That reference is currently unretrievable: the manifest root
-404s on `api.gateway.ethswarm.org` and on a local Bee alike, so one dead upload blanks every face
-on the map at once. Three things follow:
+**Without a usable avatar, a node draws its role icon.** `createAgentCard` defaults `image` to
+`DEFAULT_AGENT_IMAGE` (`erc8004-adapter/src/constants.ts`) — one Swarm reference shared by every
+agent it has ever registered. That reference is currently unretrievable: the manifest root 404s on
+`api.gateway.ethswarm.org` and on a local Bee alike, so one dead upload blanks every face on the map
+at once. So any node without a decoded avatar — none in its card, still loading, or failed — is
+drawn as the film draws its participant: a disc in `bg`, ringed in the role colour the legend
+promises, with the seller's stall, the buyer's robot or the treasury's vault
+inside. This replaced a monochrome identicon, which said nothing about who a node was.
 
-- **Failed and loading are different states.** `sprites` holding null used to mean both; a URL
-  still in flight keeps its dot, a URL in `failedSprites` gets the identicon. `spriteFor` needs a
-  real `onerror` branch for that distinction to exist, and a decode that yields no drawable sprite
-  (an SVG with no intrinsic size, a zero-byte response) counts as failed too.
-- **`onLoad` is a repaint nudge, not a success callback.** It has to fire on failure as well, or
-  the fallback waits for the next drag on a canvas that has stopped painting.
-- **The identicon is monochrome, and that is not a style choice.** Hue is spoken for — amber is a
-  seller, green a buyer, warning both — so a coloured identicon would read as a role. Identity is
-  in the pattern, drawn in `border` and `textMuted`. It is a picture _of an address_, not a
-  portrait the agent claims, so it sidesteps the "verified only" argument above; it is still drawn
-  only where a real avatar would have been, so the map claims nothing new.
+- **Only when it can be read.** Below `ICON_MIN_SCREEN_RADIUS` on screen a node stays a plain dot —
+  what a zoomed-out crowd of buyers needs.
+- **Agents and the treasury never shrink below `MAJOR_MIN_SCREEN_RADIUS`.** `zoomToFit` over the
+  buyers otherwise leaves them too small for their icon. Floored in screen pixels like the hit
+  targets (which use the same `drawnRadius`); the layout still spaces nodes by `radiusOf`. An
+  unclaimed splitter is not floored — flooring a crowd of test clones piles their discs up.
+- **The sprites are built once, when `roleSprites.tsx` loads, never during a paint.** They are the
+  `icons.tsx` components rendered off-screen (`createRoot` + `flushSync`), with `var(--mp-*)`
+  resolved from `theme.ts`, decoded from a data URL. `flushSync` cannot flush during a React commit,
+  and the canvas can paint inside one — building lazily from `drawNode` produced empty markup and
+  images that never decoded.
+- **`onLoad` is a repaint nudge, not a success callback**, for avatars and role sprites alike: a
+  settled canvas has stopped painting and would otherwise keep the dot until the next drag.
+- `failedSprites` only stops a dead avatar URL being requested again; there is no retry.
 
 The fallback is not a reason to leave the image broken. Re-uploading the identical bytes would
 reproduce that exact reference and fix every published card at once, since Swarm addresses by
@@ -312,18 +396,22 @@ rendering none of it. That page runs on a visitor's phone over conference wifi, 
 
 Three consequences to keep in mind:
 
-- **`AppShell` takes `showStatus`.** `StatusPills` reads `MarketplaceContext` and throws outside
-  the provider, so the header's "Live · 5s" chip renders only on chain routes. It would be a false
-  claim on the others regardless. `ConnectButton` stays on every page: `WalletProvider` is still
-  global, and it binds to an injected provider rather than polling anything.
+- **`AppShell` takes `showWallet`.** `ConnectButton` renders on the chain routes only: the wallet
+  signs distributions and nothing else, and on a visitor's phone a "No wallet detected" pill read
+  as an error. `WalletProvider` stays global — it binds to an injected
+  provider rather than polling anything. With no provider at all, `ConnectButton` renders nothing.
+- **No nav on `/claim-wallet`.** The visitor's agent is shut down when they leave the page, so a
+  tap on "Dashboard" mid-run would cost them the purchase. Once delivered, the page offers its own
+  link to the Map.
 - **Dashboard ↔ Map does not refetch.** Both render `MarketplaceProvider` at the same position, so
   React keeps it mounted across that switch. Entering a demo route unmounts it and returning
   reloads from scratch — a few seconds of skeletons, against data that was 5s-fresh anyway.
 - **A new chain-backed page must be added to `CHAIN_ROUTES`.** Forgetting is not silent: the first
   `useMarketplace` call throws with the provider's own message.
 
-Worth knowing separately: a history sweep always restarts at `fromBlock`, so it re-reads the whole
-window each time. `HISTORY_RELOAD_EVERY` bounds how often that happens, not how much it costs.
+Worth knowing separately: the full history sweep (`loadHistory`, ~20s against a public node) runs
+once per mount and again only when the set of clones changes, a gap outgrows one chunk, or a
+sweep was interrupted. Every other tick reads just the blocks since — see _Data flow → Refresh_.
 
 ### Hosting
 
@@ -465,9 +553,12 @@ two cannot disagree. The script never walks backwards and plays every scene in o
 time, so a poll that jumps several steps at once still reads as a story; do not sequence or debounce
 steps on the React side. It is mounted once per page and only on the working/delivered card. The
 failed card has no checklist, and remounting there would replay the story from the start.
-It is also skipped entirely when the first claim the page sees is already `delivered` (restored
-from `deliveredStore`, or reattached after a reload): replaying the whole run above a key that is
-already on screen reads as a second purchase. That is decided once, so a live run keeps its ending.
+When the first claim the page sees is already `delivered` (restored from `deliveredStore`, or
+reattached after a reload) it is mounted `settled`: it opens on its final frame — agent happy, item
+ticked — instead of replaying the run from boot. Replaying above a key already on screen reads as a
+second purchase; leaving the animation out reads as the page having lost something. That is
+decided once, so a live run keeps its played-out ending. `settled` is the local patch to the
+vendored script described under _Tech stack_.
 
 Polling is 2s while the claim is pre-terminal and 5s after. The server only folds in the buyer's
 emitted steps when it is polled, so that cadence _is_ the resolution of this display.
@@ -551,9 +642,45 @@ actually pay out instead of an undifferentiated total.
 
 ### Refresh
 
-Every `VITE_REFRESH_INTERVAL_MS` (default 5000), re-read all balances. The registry itself
-(`splittersSlice` + `splitterTerms`) changes rarely — re-read it on a slower cadence or only on
-mount plus post-transaction, not every tick.
+**Three cadences**, set by how fast each thing changes and how much a reader cares
+(`MarketplaceContext.tsx`):
+
+| What                                  | How often                                                                                                 |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Balances and Activity                 | every tick — `VITE_REFRESH_INTERVAL_MS`, default 5000                                                     |
+| Registry (`splittersSlice` + terms)   | every 12th tick, and after a transaction                                                                  |
+| Agent links (the `MetadataSet` sweep) | when the set of clones changes, otherwise every 5 min; after a node error every 10s ×3, then every minute |
+| Agent Cards and catalogs (Swarm)      | kept 5 min; a miss retried every 10s, 3 times                                                             |
+
+**Activity is near real time because it is incremental.** The window is swept once
+(`loadHistory`); after that each tick asks only for the blocks since the last one
+(`readHistorySince`: `eth_blockNumber` plus two `eth_getLogs`), re-reading 12 blocks of overlap
+in case a load-balanced node answered the head from ahead of its log index, and `mergeHistory`
+folds the rows in by block + log index — returning the same object when nothing is new, so an
+idle tick re-renders nothing. The full sweep repeats only when the set of clones changes (a new
+clone's earlier logs were never asked for), when the gap outgrows one chunk (a tab hidden for
+days), or a minute after a sweep a node error interrupted.
+
+**Swarm reads are cached, not polled** (`lib/swarmCache.ts`). A found card or catalog is kept for
+five minutes. A miss — and a catalog that resolves but 404s, which still renders as "Catalog
+unavailable" — is retried every 10s, three times, then left for five minutes before the cycle
+starts again, so a seller published after the page loaded still turns up. Nothing has a timer of
+its own: the tick calls `refreshSwarmData`, which requests only what is due, so retries pause with
+the tick when the tab is hidden. `attachSwarmData` puts the cached cards on a freshly swept index
+before it renders, so a link sweep never flashes names back to bare agent ids.
+
+**A public RPC rate-limits the page load, so the load is spread out.** The page used to fire
+the agent-link sweep, the Activity sweep and then ~100 block-time reads at once, and the public
+Tenderly gateway answered with dozens of 429s. Three things keep that down — keep all three:
+
+- **One sweep at a time.** The Activity sweep waits for the first agent-link sweep to finish
+  (agents first: smaller, and they label the top of the page).
+- **Block times in groups of eight** (`TIMESTAMP_GROUP`), one group after another. Sent at once
+  the transport batches them into one request of ~100 calls, which the node meters call by call.
+- **viem retries a 429 after 1s, 2s, 4s** (`retryDelay: 1000`) instead of its 150ms default,
+  which lands inside the same rate window and fails again.
+
+A keyed `VITE_RPC_URL` is still the real fix; these keep an unkeyed one usable.
 
 **Aggregate the reads on-chain — transport batching is not enough.** A naive tick is `3N + 3` RPC
 calls (N = sellers). This package used to rely on viem's JSON-RPC batching to collapse those into
@@ -786,6 +913,14 @@ the badge says "verified":
 Anything else renders as `unverified`, and two agents claiming one clone renders as `disputed` —
 never silently resolved in favour of whichever log came last.
 
+**A failed read is not a finding.** `unverified` means the registry answered and the wallets do
+not match. A read the node failed — a 429, a timeout — says nothing about the agent, so `tryRead`
+tells a revert (absence: normal) from any other error (unknown), and an agent whose check could
+not complete keeps the link the previous sweep established, or shows `unchecked` ("checking…",
+neutral, not a warning) when there is none. The index is marked `incomplete` and the context
+sweeps again in 10s. Likewise, a claim sweep cut short by a node error keeps the previous links
+it did not reach rather than dropping them.
+
 Three constraints on this feature, all load-bearing:
 
 - **It is optional.** No registry for the chain, an unreachable node, or a failed sweep must leave
@@ -799,7 +934,7 @@ Three constraints on this feature, all load-bearing:
 ### Agent names
 
 The badge shows the agent's name from its Agent Card: `tokenURI(agentId)` gives the card's
-location, which `enrichWithCards` fetches with a plain `fetch` (an https feed URL is used as-is;
+location, which `refreshSwarmData` fetches with a plain `fetch` (an https feed URL is used as-is;
 `bzz://` is resolved through `VITE_SWARM_GATEWAY_URL`).
 
 This is the one place the package reaches outside the chain — there is still **no Bee dependency**,
@@ -811,7 +946,7 @@ the request, a cold feed may not resolve, and it may simply be slow. So:
 - Every failure path returns undefined and the badge falls back to the bare agent id. A missing
   name is a degraded label, never a missing agent.
 - One fetch per distinct agent, not per row, with an 8s abort — the same agent can hold several
-  clones.
+  clones. Kept five minutes, a miss retried three times (see _Data flow → Refresh_).
 
 The same fetch also yields the card's `image`, which the Map of Agents paints as the node. It is
 resolved through `resolveCardUrl` like the card's own location, so it follows http(s) and `bzz://`
@@ -840,15 +975,49 @@ running next to the dashboard.
 `CATALOG_FEED_TOPIC` is the fixed protocol constant `keccak256("swarm-ai-catalog.v1")`, mirroring
 `swarm-catalog/src/feeds.ts` — do not derive it per chain or per agent.
 
-Because hop 1 is a fetch, `catalogUrl()` is async and `CatalogLink` resolves it in an effect, so
+The catalog is resolved by the same pass as the card (`refreshSwarmData`, right after it) and
+lands on the link as `AgentLink.catalog`; `CatalogLink` only reads it, and fetches nothing. So
 the link arrives a beat after the row — same rule as the agent name: never block a row on a
-gateway. Results are cached per gateway+owner (one read per catalog, not per row) and failures are
-evicted so a later publish still turns up. A local Bee usually has to be the gateway here: a
+gateway. Results are cached per gateway+owner (one read per catalog, not per row) with the same
+five-minute / three-retry policy as cards, so a later publish still turns up. A local Bee usually has to be the gateway here: a
 catalog published locally does not exist on `api.gateway.ethswarm.org`.
 
 `CatalogLink` renders **nothing** when no feed owner resolved or the feed does not resolve, rather
 than a dead link. A seller can legitimately hold a splitter and publish no catalog, and from here
 that is indistinguishable from a card that failed to fetch.
+
+When the feed **does** name a root, `resolveCatalog()` makes a third request for `catalog.jsonld`
+itself, and a non-2xx answer renders **"Catalog unavailable"** instead of a link. The feed (one
+chunk) outlives the catalog it points at: once the postage batch that stamped the catalog expires,
+the gateway 404s the document while the feed still names it. The seller did publish one, so saying
+so beats hiding it. An unavailable result is kept on screen but retried like a miss, so a
+re-stamped catalog turns up without a reload.
+
+**A click opens the catalog in a panel, not a tab.** `JsonDocumentDialog` fetches `catalog.jsonld` and
+shows it pretty-printed in a native `<dialog>` (`showModal()`: backdrop, focus containment and
+Escape come free; a backdrop click also closes it), with a "raw JSON" link to the file itself. The
+pill stays a real `<a href>` and only a plain left click is intercepted, so a modified or middle
+click and "copy link address" behave as a link — the same contract as `linkTo`.
+
+`JsonView` highlights by what JSON-LD readers care about: `@` keywords (`@context`, `@type`) in
+`lav`, ordinary keys in `sky`, the namespace of a compact IRI (`swarm-cat:`) dimmed so the term
+leads, strings `mint`, numbers `warning`. It is built from React elements — a catalog is
+third-party content, so never `dangerouslySetInnerHTML` — and its text is valid JSON when copied.
+Documents are capped at 256 kB.
+
+**Waiting is shown as waiting.** While a document loads, the panel shows pulsing dots and
+"Loading from Swarm…". The time limit is a generous 45s, because a feed lookup on a public gateway is
+often slow and a short limit turned slow-but-working into an error. An abort from the effect's own
+cleanup (a closed panel, or React's development double-run) is never reported as a timeout. A
+real failure says why and offers **Try again**. The Agent Card opens **instantly** from the copy
+the badge already fetched (`AgentCardInfo.document`) and refreshes in the background; a failed
+refresh leaves that copy on screen.
+
+**The Agent Card opens the same way.** The badge's card icon uses `JsonDocumentDialog` too, kicker
+"Agent card · ERC-8004 registration". Cards are usually served from a **feed**, which can change,
+so a card is cached only when its URL is a content-addressed `/bzz/<ref>/` path (`immutable`); a
+catalog always is. The dialog resets inherited text styles, because the card link sits inside the
+badge pill and a top-layer dialog still inherits from its DOM parent.
 
 ## Explorer links
 
@@ -879,9 +1048,11 @@ src/
     WalletContext.tsx       — EIP-1193 connect / account / chain id / switch chain
   lib/
     reads.ts                — every on-chain read: loadRegistry, readBalances, isFunded
-    agents.ts               — splitter -> ERC-8004 agent index, with verification
+    agents.ts               — splitter -> ERC-8004 agent index, with verification; cards + catalogs
+    swarmCache.ts           — how often a Swarm read repeats: 5 min fresh, 3 retries at 10s
     devcon.ts               — agent-orchestration-api client; the only service of ours
-    history.ts              — purchases + payouts from chain logs; the map's edge set
+    history.ts              — purchases + payouts from chain logs, swept once then read
+                              incrementally; the map's edge set
     graph.ts                — the network derivation: deriveGraph, graphSignature, reconcile
     format.ts               — formatTaxBps (via the SDK BPS_DENOMINATOR), formatAge
     rpcError.ts             — wallet/RPC errors to one readable line; user-rejection detection
@@ -897,7 +1068,15 @@ src/
   components/
     styles.module.css       — shared CSS module for every component
     AppShell.tsx            — header, nav and page container; wraps both views
-    StatusPills.tsx         — live/stale/loading pill in the header
+    HowItWorks.tsx          — the Dashboard's five-step lane; collapsible, autoplaying
+    OperatorDetails.tsx     — env-var advice folded under a user-facing banner
+    DashboardFooter.tsx     — repo link + the factory and registry addresses
+    icons.tsx               — buyer / seller-stall / treasury icons, step icons
+    AgentFace.tsx           — a verified seller's avatar once loaded, its stall otherwise
+    JsonDocumentDialog.tsx  — a catalog or Agent Card shown in a modal panel; isPlainClick
+    JsonView.tsx            — highlighted JSON-LD from React elements
+    RoleTip.tsx             — role label on hover / focus / tap
+    roleSprites.tsx         — the same icons as canvas images for the Map of Agents
     StaleBanner.tsx         — last-tick-failed notice; used by both views
     MapPage.tsx             — Map of Agents: period filter, memo gate, live node objects
     DevconPage.tsx          — demo hand-off: the QR code and its resolved URL

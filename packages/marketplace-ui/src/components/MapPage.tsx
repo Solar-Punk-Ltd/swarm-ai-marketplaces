@@ -20,6 +20,8 @@ import AgentGraph, { colorForRoles } from './AgentGraph';
 import AgentTable from './AgentTable';
 import { formatAmount } from './Balance';
 import StaleBanner from './StaleBanner';
+import OperatorDetails from './OperatorDetails';
+import { BuyerIcon, SellerIcon, TreasuryIcon } from './icons';
 import styles from './styles.module.css';
 
 type LegendRole = NodeRole | 'both';
@@ -73,16 +75,20 @@ export default function MapPage() {
   const onSelect = useCallback((node: GraphNode | undefined) => setSelectedId(node?.id), []);
 
   const settlement = erc20Currencies(config.currencies)[0];
-  const sellers = registry?.sellers.length ?? 0;
+  const splitters = registry?.sellers.length ?? 0;
+  // A splitter is not an agent until an ERC-8004 agent has claimed it; counting every clone as a
+  // "seller agent" overstated it by the number of unclaimed test clones.
+  const agents = graph.nodes.filter((node) => node.agentId !== undefined).length;
+  const periodLabel = period === 'all' ? 'all loaded history' : `the last ${period}`;
 
   return (
     <section className={styles.section}>
       <div className={styles.sectionHead}>
         <h2 className={styles.sectionTitle}>Map of Agents</h2>
         <span className={styles.sectionMeta}>
-          {sellers} seller agent{sellers === 1 ? '' : 's'} · {graph.purchases} purchase
-          {graph.purchases === 1 ? '' : 's'} · {graph.links.length} edge
-          {graph.links.length === 1 ? '' : 's'}
+          {agents} agent{agents === 1 ? '' : 's'} · {splitters} splitter
+          {splitters === 1 ? '' : 's'} · {graph.purchases} purchase
+          {graph.purchases === 1 ? '' : 's'} in {periodLabel}
         </span>
       </div>
 
@@ -103,17 +109,21 @@ export default function MapPage() {
 
       {!config.identityRegistry && (
         <div className={styles.banner}>
-          No ERC-8004 Identity Registry is configured for {config.chain.name}, so the activity sweep
-          never runs and no edges can be drawn. Agents below are the registered clones only. Set
-          VITE_IDENTITY_REGISTRY_ADDRESS to enable it.
+          Payments cannot be shown on this network yet, so the map shows sellers only.
+          <OperatorDetails>
+            No ERC-8004 Identity Registry is configured for {config.chain.name}, so the activity
+            sweep never runs. Set VITE_IDENTITY_REGISTRY_ADDRESS to enable it.
+          </OperatorDetails>
         </div>
       )}
 
       {history.partial && (
         <div className={styles.banner}>
-          The log sweep was cut short, so edges are missing and no absence here proves anything.
-          Lower VITE_LOG_CHUNK_BLOCKS, raise VITE_IDENTITY_REGISTRY_FROM_BLOCK, or use an RPC that
-          allows wider ranges.
+          Some activity could not be loaded, so payments may be missing from the map.
+          <OperatorDetails>
+            The log sweep was cut short. Lower VITE_LOG_CHUNK_BLOCKS, raise
+            VITE_IDENTITY_REGISTRY_FROM_BLOCK, or use an RPC that allows wider ranges.
+          </OperatorDetails>
         </div>
       )}
 
@@ -131,19 +141,29 @@ export default function MapPage() {
       <div className={styles.graphLegend}>
         {LEGEND.map((item) => (
           <span key={item.role} className={styles.legendItem}>
+            {/* Drawn as the canvas draws a node: the role icon in a disc ringed in the role colour. */}
             <span
               className={styles.legendDot}
-              style={{ background: legendColor(item.role) }}
+              style={{ borderColor: legendColor(item.role) }}
               aria-hidden
-            />
+            >
+              {item.role === 'treasury' ? (
+                <TreasuryIcon size={14} />
+              ) : item.role === 'buyer' ? (
+                <BuyerIcon size={14} />
+              ) : (
+                <SellerIcon size={14} />
+              )}
+            </span>
             {item.label}
           </span>
         ))}
-        <span className={styles.legendHint}>
-          Edge thickness is transfer count. An avatar marks a verified agent; a plain dot is an
-          unverified link, a buyer wallet, or the treasury. Drag to rearrange, scroll to zoom, click
-          a node to pin it.
-        </span>
+        {/* Reading aids, folded: the legend dots say enough at a glance. */}
+        <details className={styles.legendHint}>
+          <summary>how to read the map</summary>
+          <span>Thicker line = more payments · picture = verified agent</span>
+          <span>Drag to move · Ctrl/⌘ + scroll to zoom · click to select</span>
+        </details>
       </div>
 
       {loading && !registry ? (

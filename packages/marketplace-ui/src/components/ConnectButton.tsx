@@ -15,13 +15,10 @@ function truncate(address: string): string {
 export default function ConnectButton() {
   const { available, account, connecting, wrongChain, connect, switchChain, error } = useWallet();
 
-  if (!available) {
-    return (
-      <span className={styles.pill} title="No EIP-1193 provider found in this browser">
-        No wallet detected
-      </span>
-    );
-  }
+  // Nothing to offer without a provider, and nothing is wrong: every read works without one. A
+  // "No wallet detected" pill read as an error to visitors who only came to look. The disabled
+  // Distribute buttons still say a wallet is needed to use them.
+  if (!available) return null;
 
   if (!account) {
     return (
@@ -36,6 +33,7 @@ export default function ConnectButton() {
           className={styles.button}
           onClick={() => void connect()}
           disabled={connecting}
+          title="Only needed to trigger distributions — everything else works without a wallet"
         >
           {connecting ? 'Connecting…' : 'Connect wallet'}
         </button>

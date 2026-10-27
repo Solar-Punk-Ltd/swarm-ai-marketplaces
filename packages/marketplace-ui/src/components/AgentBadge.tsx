@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import type { Address } from 'viem';
 import { useMarketplace } from '../context/MarketplaceContext';
 import { config } from '../config/env';
 import type { AgentLink } from '../lib/agents';
+import JsonDocumentDialog, { isPlainClick } from './JsonDocumentDialog';
 import styles from './styles.module.css';
 
 /**
@@ -38,20 +40,43 @@ function label(link: AgentLink): string {
   return link.card?.name ? `${link.card.name} · ${id}` : id;
 }
 
+/**
+ * The agent's registration file, opened in the same panel as a catalog. Still a real link to the
+ * file for modified clicks (see `isPlainClick`).
+ */
 function CardLink({ link }: { link: AgentLink }) {
+  const [open, setOpen] = useState(false);
   const href = link.card?.url;
   if (!href) return null;
   return (
-    <a
-      className={styles.iconButton}
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      aria-label="Open the Agent Card"
-      title="Open the Agent Card"
-    >
-      <CardIcon />
-    </a>
+    <>
+      <a
+        className={styles.iconButton}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="View the Agent Card"
+        title="View the Agent Card"
+        onClick={(event) => {
+          if (!isPlainClick(event)) return;
+          event.preventDefault();
+          setOpen(true);
+        }}
+      >
+        <CardIcon />
+      </a>
+      {open && (
+        <JsonDocumentDialog
+          url={href}
+          kicker="Agent card · ERC-8004 registration"
+          fallbackTitle={link.card?.name ?? `Agent #${link.agentId}`}
+          initial={link.card?.document}
+          // A /bzz/<ref>/ card is content-addressed; one served from a feed can change.
+          immutable={/\/bzz\/[0-9a-f]{64}/i.test(href)}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
   );
 }
 
@@ -81,6 +106,21 @@ export default function AgentBadge({ splitter, seller }: { splitter: Address; se
           title={`More than one agent claims this splitter. None can be trusted without an off-chain check.${description}`}
         >
           {label(link)} · disputed
+        </span>
+        <CardLink link={link} />
+      </span>
+    );
+  }
+
+  if (link.status === 'unchecked') {
+    // The node did not answer (usually a rate limit). Neutral, not a warning: nothing is known
+    // against this agent, and the context re-reads it within seconds.
+    return (
+      <span className={`${styles.pill} ${styles.pillClamp}`}>
+        <span
+          title={`Agent ${link.agentId} claims this splitter. The chain node did not answer while checking it — usually a rate limit — so it is checked again shortly.${description}`}
+        >
+          {label(link)} · checking…
         </span>
         <CardLink link={link} />
       </span>

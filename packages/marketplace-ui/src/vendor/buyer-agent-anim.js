@@ -20,6 +20,9 @@
  *   anim.setStep('error');     // something failed (any later step clears it)
  *   anim.destroy();
  *
+ *   BuyerAgentAnim.mount(el, { step: 'done', settled: true });  // open on the final frame
+ *                                                               // (local patch, see mount())
+ *
  * Scenes never skip: if the app jumps ahead, each scene in between still plays for its minimum
  * time, so the story reads in order. A scene that has played keeps looping until the next step
  * arrives, so a long wait never looks frozen. prefers-reduced-motion stops the idle motion.
@@ -64,7 +67,11 @@
     orange: '#F58A14',
     green: '#2FD07F',
     red: '#E5484D',
-    teal: '#38C6D9',
+    /* LOCAL PATCH (marketplace-ui): the seller was teal (#38C6D9). It is the dashboard's seller
+       amber (theme.ts `seller`), so the seller looks the same here as on the Dashboard and the Map
+       of Agents. The key keeps its name; it colours the seller and nothing else. Keep when
+       replacing this file. */
+    teal: '#F59D33',
   };
   var MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
   var SANS = "Inter, system-ui, -apple-system, 'Segoe UI', sans-serif";
@@ -289,7 +296,8 @@
     return { update: update };
   }
 
-  /* ── the seller agent (the film's vendor): rounded-square head, teal collar and antenna ── */
+  /* ── the seller agent (the film's vendor): rounded-square head, collar and antenna in C.teal
+        (amber — see the local patch on C) ── */
   function makeSeller(p, U) {
     var g = el('g', {}, p);
     el('ellipse', { cx: 0, cy: 100, rx: 44, ry: 6, fill: 'url(#' + U + '-shadow)' }, g);
@@ -699,7 +707,11 @@
       return performance.now() / 1000;
     }
     var target = IDX[STEP_TO_SCENE[opts.step || 'created']] || 0;
-    var cur = 0,
+    /* LOCAL PATCH (marketplace-ui) — `opts.settled`: open directly on the target scene instead
+       of replaying the story from boot, for a run that already finished before the page loaded.
+       Passed scenes already draw their finished state (at() returns 1e9), so nothing else is
+       needed. To be upstreamed to the author; keep it when replacing this file. */
+    var cur = opts.settled ? target : 0,
       curSince = now(),
       t0 = now(),
       error = false,

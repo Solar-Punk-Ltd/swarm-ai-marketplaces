@@ -28,15 +28,25 @@ interface AnimHandle {
 
 declare global {
   interface Window {
-    BuyerAgentAnim: { mount(el: HTMLElement): AnimHandle };
+    BuyerAgentAnim: {
+      mount(el: HTMLElement, opts?: { step?: AnimStep; settled?: boolean }): AnimHandle;
+    };
   }
 }
 
 export default function BuyerAgentAnim({
   step,
+  settled = false,
   className,
 }: {
   step: AnimStep;
+  /**
+   * Open on `step`'s scene instead of playing the story up to it. For a run that finished before
+   * this page saw it (restored from `deliveredStore`, or reattached after a reload): replaying it
+   * above a key already on screen reads as a second purchase, and hiding it reads as breakage.
+   * Read once, at mount.
+   */
+  settled?: boolean;
   className?: string;
 }) {
   const box = useRef<HTMLDivElement>(null);
@@ -45,12 +55,13 @@ export default function BuyerAgentAnim({
   // Mounted once. `destroy` removes the SVG, so StrictMode's double mount leaves exactly one.
   useEffect(() => {
     if (!box.current) return;
-    const anim = window.BuyerAgentAnim.mount(box.current);
+    const anim = window.BuyerAgentAnim.mount(box.current, settled ? { step, settled } : undefined);
     handle.current = anim;
     return () => {
       anim.destroy();
       handle.current = undefined;
     };
+    // Mount-time only by design: `settled` and the opening `step` are read once.
   }, []);
 
   // Declared after the mount effect, so on first render it runs second and finds the handle.

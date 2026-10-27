@@ -6,6 +6,7 @@ import { config } from '../config/env';
 import { erc20Currencies } from '../config/currencies';
 import { totalPending } from '../lib/reads';
 import { formatAmount } from './Balance';
+import { blockedReason } from './DistributeButton';
 import TxNote from './TxNote';
 import styles from './styles.module.css';
 
@@ -18,7 +19,7 @@ import styles from './styles.module.css';
  */
 export default function DistributeAllButton() {
   const { balances, fundedSplitters, stale, loading } = useMarketplace();
-  const { account, wrongChain } = useWallet();
+  const { available, account, wrongChain } = useWallet();
   const { state, busy, distributeAllFunded } = useDistributeAll();
 
   // Total accrued across the funded set, per ERC-20. Native entries are excluded: a clone has no
@@ -71,6 +72,11 @@ export default function DistributeAllButton() {
         {busy ? 'Distributing…' : 'Distribute all'}
       </button>
       <span className={styles.txNote}>{scope}</span>
+      {/* Said once here rather than under every seller's button: the reason is the same for all
+          of them, and a tooltip is invisible on a phone. */}
+      {fundedSplitters.length > 0 && blocked && state.status === 'idle' && (
+        <span className={styles.txNote}>{blockedReason(available, account, wrongChain)}</span>
+      )}
       <TxNote state={state} />
     </div>
   );

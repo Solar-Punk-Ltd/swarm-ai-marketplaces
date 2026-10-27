@@ -11,6 +11,8 @@ import ClaimWalletPage from './components/ClaimWalletPage';
 import SellerSection from './components/SellerSection';
 import TreasurySection from './components/TreasurySection';
 import HistorySection from './components/HistorySection';
+import HowItWorks from './components/HowItWorks';
+import DashboardFooter from './components/DashboardFooter';
 import styles from './components/styles.module.css';
 
 function ConfigFailure({ problems }: { problems: string[] }) {
@@ -36,9 +38,11 @@ function Dashboard() {
   return (
     <>
       <StaleBanner />
+      <HowItWorks />
       <TreasurySection />
       <SellerSection />
       <HistorySection />
+      <DashboardFooter />
     </>
   );
 }
@@ -69,7 +73,7 @@ function Routes() {
   const onChain = CHAIN_ROUTES.has(route);
 
   const shell = (
-    <AppShell route={route} subtitle={SUBTITLES[route]} showStatus={onChain}>
+    <AppShell route={route} subtitle={SUBTITLES[route]} showWallet={onChain}>
       <Page />
     </AppShell>
   );

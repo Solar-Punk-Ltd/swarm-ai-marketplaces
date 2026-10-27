@@ -14,7 +14,15 @@
  * viem-only and deliberately does not depend on `@solarpunk/erc8004-adapter`, which is ethers and
  * pulls in bee-js.
  */
-import { isAddress, getAddress, keccak256, parseAbiItem, toBytes } from 'viem';
+import {
+  BaseError,
+  ContractFunctionRevertedError,
+  isAddress,
+  getAddress,
+  keccak256,
+  parseAbiItem,
+  toBytes,
+} from 'viem';
 import type { Address, PublicClient } from 'viem';
 import {
   chunkRangesNewestFirst,
@@ -23,6 +31,7 @@ import {
   MAX_LOG_CHUNKS,
   sweepStart,
 } from '../config/registry';
+import { SwarmCache } from './swarmCache';
 
 /** Must match AGENT_SPLITTER in erc8004-adapter/src/constants.ts. */
 export const AGENT_SPLITTER_KEY = 'agent_splitter';
@@ -53,7 +62,13 @@ export type LinkStatus =
   /** Link points at a real clone, but its seller is neither the agent wallet nor the owner. */
   | 'unverified'
   /** More than one agent claims this clone — we refuse to pick a winner. */
-  | 'disputed';
+  | 'disputed'
+  /**
+   * The registry could not be read for this agent — the node rate-limited or failed the call — so
+   * whether the link holds is not known yet. Never shown as `unverified`: that is a finding about
+   * the agent, and a 429 is not one. Retried within seconds.
+   */
+  | 'unchecked';
 
 /** The subset of the ERC-8004 Agent Card this dashboard displays. */
 export interface AgentCardInfo {
@@ -72,6 +87,11 @@ export interface AgentCardInfo {
    * agent publishes no catalog — a seller can hold a splitter without listing anything.
    */
   catalogFeedOwner?: Address;
+  /**
+   * The whole card as fetched, for the card viewer to show at once instead of waiting on the
+   * gateway again. Third-party data: displayed as text, never trusted or interpreted.
+   */
+  document: unknown;
 }
 
 export interface AgentLink {
@@ -87,6 +107,11 @@ export interface AgentLink {
    * fetched or could not be — never that the agent has no name.
    */
   card?: AgentCardInfo;
+  /**
+   * The catalog named by the card's `swarm-ai-catalog` entry, filled in by the same pass as
+   * `card`. Undefined when there is no card, no catalog feed, or it has not resolved yet.
+   */
+  catalog?: CatalogLinkInfo;
   status: LinkStatus;
 }
 
@@ -95,9 +120,37 @@ export interface AgentLinkIndex {
   bySplitter: Map<string, AgentLink>;
   /** True when the log sweep was cut short, so absence of a link proves nothing. */
   partial: boolean;
+  /**
+   * True when a node error (not a revert) cut a read short — a rate limit, typically. What could
+   * not be read was carried over from the previous index or marked `unchecked`; the caller should
+   * sweep again soon rather than at the usual cadence.
+   */
+  incomplete: boolean;
 }
 
-export const EMPTY_LINK_INDEX: AgentLinkIndex = { bySplitter: new Map(), partial: false };
+export const EMPTY_LINK_INDEX: AgentLinkIndex = {
+  bySplitter: new Map(),
+  partial: false,
+  incomplete: false,
+};
+
+/**
+ * The short name to show for an agent wherever only one label fits (activity rows, map nodes).
+ *
+ * Card names are free text and nothing makes them unique — two agents both called
+ * `devcon8-seller-1` are the ordinary result of redeploying a demo. When a name is shared by more
+ * than one agent id in the index, the id is appended so the two can be told apart.
+ */
+export function agentDisplayName(link: AgentLink, index: AgentLinkIndex): string {
+  const name = link.card?.name;
+  if (!name) return `Agent #${link.agentId}`;
+  for (const other of index.bySplitter.values()) {
+    if (other.agentId !== link.agentId && other.card?.name === name) {
+      return `${name} #${link.agentId}`;
+    }
+  }
+  return name;
+}
 
 /** 20-byte metadata value -> address. Null for anything else; one bad claim must not break a sweep. */
 function decodeAddress(value: `0x${string}`): Address | null {
@@ -116,7 +169,7 @@ async function readClaims(
   registry: Address,
   fromBlock: bigint,
   chunkBlocks: bigint,
-): Promise<{ claims: Map<bigint, Address>; partial: boolean }> {
+): Promise<{ claims: Map<bigint, Address>; partial: boolean; failed: boolean }> {
   const head = await client.getBlockNumber();
   const claims = new Map<bigint, Address>();
 
@@ -132,6 +185,7 @@ async function readClaims(
   const { start, truncated } = sweepStart(head, fromBlock, chunkBlocks, MAX_LOG_CHUNKS);
   const settled = new Set<bigint>();
   let partial = truncated;
+  let failed = false;
 
   const { ranges, exhausted } = chunkRangesNewestFirst(head, start, chunkBlocks, MAX_LOG_CHUNKS);
   if (exhausted) partial = true;
@@ -168,6 +222,7 @@ async function readClaims(
             (result.err instanceof Error ? result.err.message : String(result.err)),
         );
         partial = true;
+        failed = true;
         stop = true;
         continue;
       }
@@ -188,25 +243,34 @@ async function readClaims(
     if (stop) break;
   }
 
-  return { claims, partial };
+  return { claims, partial, failed };
 }
 
-/** `ownerOf` / `getAgentWallet` both revert for some agents; absence is normal, not an error. */
+/**
+ * `ownerOf` / `getAgentWallet` both revert for some agents; absence is normal, not an error. Only
+ * a revert means absence, though. Anything else — a 429, a timeout — says nothing about the agent,
+ * so it comes back as `failed` rather than as a missing value that would read as "unverified".
+ */
 async function tryRead<T>(
   client: PublicClient,
   registry: Address,
   abi: typeof OWNER_OF | typeof AGENT_WALLET | typeof TOKEN_URI,
   agentId: bigint,
-): Promise<T | undefined> {
+): Promise<{ value?: T; failed: boolean }> {
   try {
-    return (await client.readContract({
+    const value = (await client.readContract({
       address: registry,
       abi: [abi],
       functionName: abi.name,
       args: [agentId],
     })) as T;
-  } catch {
-    return undefined;
+    return { value, failed: false };
+  } catch (err) {
+    const reverted =
+      err instanceof BaseError &&
+      err.walk((e) => e instanceof ContractFunctionRevertedError) instanceof
+        ContractFunctionRevertedError;
+    return { failed: !reverted };
   }
 }
 
@@ -216,6 +280,8 @@ export interface LoadAgentLinksParams {
   chunkBlocks?: bigint;
   /** Clone addresses the factory actually knows about. Claims outside this set are discarded. */
   knownSplitters: Address[];
+  /** The index on screen. Whatever a node error stops this sweep reading is carried over from it. */
+  previous?: AgentLinkIndex;
 }
 
 /**
@@ -232,7 +298,9 @@ export async function loadAgentLinks(
   const { registry, fromBlock, chunkBlocks = BigInt(DEFAULT_LOG_CHUNK_BLOCKS) } = params;
 
   const known = new Set(params.knownSplitters.map((s) => s.toLowerCase()));
-  const { claims, partial } = await readClaims(client, registry, fromBlock, chunkBlocks);
+  const { claims, partial, failed } = await readClaims(client, registry, fromBlock, chunkBlocks);
+  const previous = params.previous?.bySplitter;
+  let incomplete = failed;
 
   // Discard claims on clones this factory never created — an agent naming an arbitrary address
   // should not put a label on anything, and must not shadow a real link.
@@ -247,13 +315,20 @@ export async function loadAgentLinks(
         tryRead<Address>(client, registry, AGENT_WALLET, agentId),
         tryRead<string>(client, registry, TOKEN_URI, agentId),
       ]);
-      return { agentId, splitter, owner, agentWallet, agentURI };
+      return {
+        agentId,
+        splitter,
+        owner: owner.value,
+        agentWallet: agentWallet.value,
+        agentURI: agentURI.value,
+        failed: owner.failed || agentWallet.failed || agentURI.failed,
+      };
     }),
   );
 
   const bySplitter = new Map<string, AgentLink>();
 
-  for (const entry of resolved) {
+  for (const { failed: readFailed, ...entry } of resolved) {
     const key = entry.splitter.toLowerCase();
     const seller = sellerOf(entry.splitter)?.toLowerCase();
 
@@ -261,7 +336,17 @@ export async function loadAgentLinks(
       seller !== undefined &&
       (entry.agentWallet?.toLowerCase() === seller || entry.owner?.toLowerCase() === seller);
 
-    const link: AgentLink = { ...entry, status: matches ? 'verified' : 'unverified' };
+    let link: AgentLink = { ...entry, status: matches ? 'verified' : 'unverified' };
+    // A match is proof whichever read failed; a mismatch with a read missing is no finding at all.
+    // Keep what the last sweep established for this agent, or say it is not known yet.
+    if (readFailed && !matches) {
+      incomplete = true;
+      const before = previous?.get(key);
+      link =
+        before && before.agentId === entry.agentId && before.status !== 'unchecked'
+          ? before
+          : { ...entry, status: 'unchecked' };
+    }
 
     const existing = bySplitter.get(key);
     if (existing && existing.agentId !== link.agentId) {
@@ -273,7 +358,14 @@ export async function loadAgentLinks(
     bySplitter.set(key, link);
   }
 
-  return { bySplitter, partial };
+  // A claim sweep a node error cut short has not seen every link: keep those it missed.
+  if (failed && previous) {
+    for (const [key, link] of previous) {
+      if (!bySplitter.has(key) && known.has(key)) bySplitter.set(key, link);
+    }
+  }
+
+  return { bySplitter, partial, incomplete };
 }
 
 /**
@@ -340,52 +432,13 @@ async function fetchCard(
       // dropped rather than handed to a renderer.
       image: image ? resolveCardUrl(image, gateway) : undefined,
       catalogFeedOwner: readCatalogFeedOwner(card),
+      document: card,
     };
   } catch {
     return undefined;
   } finally {
     clearTimeout(timer);
   }
-}
-
-/**
- * Second pass over an already-rendered index, attaching each agent's card.
- *
- * Deliberately separate from `loadAgentLinks`: the on-chain half is fast and reliable, the
- * gateway half is neither, and the badge must not wait on it. Returns a new index so React
- * sees a changed reference.
- */
-export async function enrichWithCards(
-  index: AgentLinkIndex,
-  gateway: string,
-  timeoutMs = 8000,
-): Promise<AgentLinkIndex> {
-  const entries = [...index.bySplitter.entries()];
-
-  // One fetch per distinct agent, not per row — the same agent can hold several clones.
-  const urls = new Map<string, string>();
-  for (const [, link] of entries) {
-    if (!link.agentURI || link.card) continue;
-    const url = resolveCardUrl(link.agentURI, gateway);
-    if (url) urls.set(link.agentId.toString(), url);
-  }
-  if (urls.size === 0) return index;
-
-  const fetched = new Map<string, AgentCardInfo>();
-  await Promise.all(
-    [...urls.entries()].map(async ([agentId, url]) => {
-      const card = await fetchCard(url, gateway, timeoutMs);
-      if (card) fetched.set(agentId, card);
-    }),
-  );
-  if (fetched.size === 0) return index;
-
-  const bySplitter = new Map<string, AgentLink>();
-  for (const [key, link] of entries) {
-    const card = link.card ?? fetched.get(link.agentId.toString());
-    bySplitter.set(key, card ? { ...link, card } : link);
-  }
-  return { bySplitter, partial: index.partial };
 }
 
 /** A Swarm reference as the catalog feed carries it — a bare 64-char hex string (§4.1). */
@@ -424,38 +477,133 @@ async function readCatalogFeedRoot(
 }
 
 /**
- * In-flight and resolved catalog URLs, keyed by gateway + owner. One feed read per catalog, not
- * per row — the same agent can hold several clones. Failures are evicted so a catalog published
- * after the dashboard loaded still turns up on a later mount.
+ * Whether the catalog document behind a resolved feed can actually be retrieved.
+ *
+ * The feed outlives what it points at: a feed update is a single chunk, while the catalog is a
+ * whole Mantaray, and once the postage batch that stamped the catalog expires the gateway answers
+ * 404 for it while the feed still names the root. Any answer other than 2xx — or no answer — is
+ * reported as unavailable, because the link would be just as dead to the person clicking it.
  */
-const catalogUrlCache = new Map<string, Promise<string | undefined>>();
+async function catalogRetrievable(url: string, timeoutMs: number): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
- * Where to send someone who wants to browse this agent's catalog.
+ * `available` — the link works. `unavailable` — the feed names a catalog, but the gateway cannot
+ * serve it (most often an expired postage stamp).
+ */
+export interface CatalogLinkInfo {
+  url: string;
+  available: boolean;
+}
+
+/**
+ * Where to send someone who wants to browse this agent's catalog, and whether that link works.
  *
  * Two hops, both on the gateway. The feed URL is not itself a destination: it resolves to the
  * Mantaray root, not to the catalog, so the root has to be read before a link exists. The
  * collection document then sits at `/catalog.jsonld` under that root, giving
- * `<gateway>/bzz/<root>/catalog.jsonld`.
+ * `<gateway>/bzz/<root>/catalog.jsonld`. A third request checks that document is retrievable.
  *
- * Resolves to undefined on any failure, like the card fetch above — the gateway is not ours, and
- * a seller can hold a splitter and have never published a catalog.
+ * Resolves to undefined when no catalog root resolves, like the card fetch above — the gateway is
+ * not ours, and a seller can hold a splitter and have never published a catalog.
  */
-export function catalogUrl(
+async function resolveCatalog(
   catalogFeedOwner: Address,
   gateway: string,
+  timeoutMs: number,
+): Promise<CatalogLinkInfo | undefined> {
+  const root = await readCatalogFeedRoot(gateway, catalogFeedOwner, timeoutMs);
+  if (!root) return undefined;
+  const url = `${gateway}/bzz/${root}/${CATALOG_MANIFEST_PATH}`;
+  return { url, available: await catalogRetrievable(url, timeoutMs) };
+}
+
+/**
+ * Agent Cards by resolved URL, and catalog links by gateway + feed owner — one read per distinct
+ * card or catalog, not per row, since the same agent can hold several clones. Both keep what they
+ * found for five minutes and retry a miss a few times first (see `swarmCache.ts`). A catalog that
+ * resolves but cannot be retrieved is kept, so it can say "Catalog unavailable", and retried like
+ * a miss — the usual cause, an expired stamp, can be fixed by re-stamping.
+ */
+const cardCache = new SwarmCache<AgentCardInfo>({
+  same: (a, b) => a.url === b.url && JSON.stringify(a.document) === JSON.stringify(b.document),
+});
+const catalogCache = new SwarmCache<CatalogLinkInfo>({
+  isHit: (catalog) => catalog.available,
+  same: (a, b) => a.url === b.url && a.available === b.available,
+});
+
+const trimGateway = (gateway: string) => gateway.replace(/\/+$/, '');
+const catalogKey = (owner: Address, gateway: string) =>
+  `${trimGateway(gateway)}|${owner.toLowerCase()}`;
+
+/**
+ * Read every Agent Card and catalog behind `index` that is due (never read, past five minutes, or
+ * a miss whose retry has come up). Resolves to whether anything changed, so the caller re-renders
+ * only then — with `attachSwarmData`.
+ *
+ * Deliberately separate from `loadAgentLinks`: the on-chain half is fast and reliable, the
+ * gateway half is neither, and the badge must not wait on it. Called on every tick; when nothing
+ * is due it makes no request at all.
+ */
+export async function refreshSwarmData(
+  index: AgentLinkIndex,
+  gateway: string,
   timeoutMs = 8000,
-): Promise<string | undefined> {
-  const base = gateway.replace(/\/+$/, '');
-  const key = `${base}|${catalogFeedOwner.toLowerCase()}`;
+): Promise<boolean> {
+  const base = trimGateway(gateway);
+  const urls = new Set<string>();
+  for (const link of index.bySplitter.values()) {
+    const url = link.agentURI ? resolveCardUrl(link.agentURI, base) : undefined;
+    if (url) urls.add(url);
+  }
 
-  const cached = catalogUrlCache.get(key);
-  if (cached) return cached;
+  const changed = await Promise.all(
+    [...urls].map(async (url) => {
+      const cardChanged = await cardCache.refresh(url, () => fetchCard(url, base, timeoutMs));
+      // The catalog's location is in the card, so it waits for the card.
+      const owner = cardCache.peek(url)?.catalogFeedOwner;
+      const catalogChanged = owner
+        ? await catalogCache.refresh(catalogKey(owner, base), () =>
+            resolveCatalog(owner, base, timeoutMs),
+          )
+        : false;
+      return cardChanged || catalogChanged;
+    }),
+  );
+  return changed.some(Boolean);
+}
 
-  const pending = readCatalogFeedRoot(base, catalogFeedOwner, timeoutMs).then((root) => {
-    if (!root) catalogUrlCache.delete(key);
-    return root ? `${base}/bzz/${root}/${CATALOG_MANIFEST_PATH}` : undefined;
-  });
-  catalogUrlCache.set(key, pending);
-  return pending;
+/**
+ * Put what the caches hold onto each link, synchronously. Applied to a freshly swept index before
+ * it is rendered, so a registry reload never drops names back to bare agent ids while the cards
+ * are fetched again. Returns `index` itself when nothing differs.
+ */
+export function attachSwarmData(index: AgentLinkIndex, gateway: string): AgentLinkIndex {
+  const base = trimGateway(gateway);
+  let changed = false;
+  const bySplitter = new Map<string, AgentLink>();
+  for (const [key, link] of index.bySplitter) {
+    const url = link.agentURI ? resolveCardUrl(link.agentURI, base) : undefined;
+    const card = url ? cardCache.peek(url) : undefined;
+    const owner = card?.catalogFeedOwner;
+    const catalog = owner ? catalogCache.peek(catalogKey(owner, base)) : undefined;
+    if (card === link.card && catalog === link.catalog) {
+      bySplitter.set(key, link);
+      continue;
+    }
+    changed = true;
+    bySplitter.set(key, { ...link, card, catalog });
+  }
+  return changed ? { ...index, bySplitter } : index;
 }

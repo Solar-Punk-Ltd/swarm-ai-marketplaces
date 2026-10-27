@@ -17,6 +17,7 @@
  */
 import type { Address } from 'viem';
 import { HISTORY_LIMIT } from '../config/registry';
+import { agentDisplayName } from './agents';
 import type { AgentLinkIndex } from './agents';
 import type { History, HistoryEntry } from './history';
 import type { Registry } from './reads';
@@ -204,7 +205,7 @@ export function deriveGraph(input: DeriveGraphInput): DerivedGraph {
     const link = agentLinks.bySplitter.get(id);
     if (link) {
       node.agentId = link.agentId;
-      node.label = link.card?.name ?? `Agent #${link.agentId}`;
+      node.label = agentDisplayName(link, agentLinks);
       // Assigned on every pass rather than only when there is something to assign, so that
       // `reconcile`'s Object.assign can clear it: a link that loses its verified status has to
       // lose its face too, and a key that is never written is a key that never overwrites.

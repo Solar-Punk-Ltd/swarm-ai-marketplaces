@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import useClaim from '../hooks/useClaim';
+import { linkTo } from '../hooks/useRoute';
 import { parseVoucher, type Claim, type ClaimItem, type ClaimState } from '../lib/devcon';
 import AddressLink from './AddressLink';
 import BuyerAgentAnim, { type AnimStep } from './BuyerAgentAnim';
@@ -460,12 +461,13 @@ export default function ClaimWalletPage() {
   const remaining = useCountdown(claim?.expiresAt, counting);
 
   // The animation narrates a run the visitor is watching. A claim that was already delivered when
-  // this page first saw it — restored from `deliveredStore`, or reattached after a reload — would
-  // otherwise replay the whole story from boot above a key that is already on screen. Decided once,
-  // so a live run that reaches `delivered` keeps its ending.
-  const [animate, setAnimate] = useState<boolean>();
-  if (claim && animate === undefined) {
-    setAnimate(claim.state !== 'delivered');
+  // this page first saw it — restored from `deliveredStore`, or reattached after a reload — opens
+  // on its final frame instead: replaying the story from boot above a key already on screen reads
+  // as a second purchase, and leaving the animation out reads as the page having lost something.
+  // Decided once, so a live run that reaches `delivered` keeps its played-out ending.
+  const [settled, setSettled] = useState<boolean>();
+  if (claim && settled === undefined) {
+    setSettled(claim.state === 'delivered');
   }
 
   if (!configured) {
@@ -488,8 +490,16 @@ export default function ClaimWalletPage() {
         <div className={styles.claimCard}>
           <p className={styles.claimLead}>Get a buyer agent of your own.</p>
           <p className={styles.claimHint}>
-            Starting deploys an agent with a funded wallet. It finds a seller, buys one item over
-            x402 and hands it to you here. It is shut down when you close this page.
+            Press Start and an AI agent is created just for you, with a little test USDC to spend.
+            It finds a seller agent on-chain, pays it over x402, and hands you what it bought: a
+            Swarm wallet funded with xBZZ and xDAI.
+          </p>
+          {/* Two chains appear in the steps that follow; said once here so neither reads as a
+              mistake. */}
+          <p className={styles.claimHint}>
+            The agent pays on Base Sepolia, a test network. The wallet you receive is on Gnosis
+            Chain, where Swarm storage is paid for. Keep this page open — the agent is shut down
+            when you close it.
           </p>
           <button
             type="button"
@@ -565,7 +575,7 @@ export default function ClaimWalletPage() {
           <>
             {/* Steps on the left, the animation in the free space beside them; on a phone the
                 animation moves above (see .claimTop). */}
-            <div className={animate ? styles.claimTop : undefined}>
+            <div className={styles.claimTop}>
               <div className={styles.claimTopMain}>
                 <p className={styles.claimLead}>
                   {delivered ? 'Your agent bought this for you.' : 'Your buyer agent is working.'}
@@ -574,7 +584,11 @@ export default function ClaimWalletPage() {
                 <Steps claim={claim} />
               </div>
 
-              {animate && <BuyerAgentAnim step={animStep(claim)} className={styles.claimAnim} />}
+              <BuyerAgentAnim
+                step={animStep(claim)}
+                settled={settled}
+                className={styles.claimAnim}
+              />
             </div>
 
             {claim.item && (
@@ -602,6 +616,17 @@ export default function ClaimWalletPage() {
                   <span className={styles.claimCountdown}>{clock(remaining)}</span>
                 )}
                 Your agent is yours while this page is open, and is shut down when you close it.
+              </p>
+            )}
+
+            {/* The nav is hidden on this page (leaving mid-run would cost the visitor their
+                agent), so once the purchase is done this is the way to the dashboard, where the
+                purchase just made shows up on the projected map. */}
+            {delivered && (
+              <p className={styles.claimHint}>
+                <a className={styles.claimLink} {...linkTo('map')}>
+                  See your purchase on the live Map of Agents →
+                </a>
               </p>
             )}
 

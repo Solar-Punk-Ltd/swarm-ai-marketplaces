@@ -4,6 +4,9 @@ import { formatTaxBps } from '../lib/format';
 import AddressLink from './AddressLink';
 import Balance, { Skeleton } from './Balance';
 import DistributeAllButton from './DistributeAllButton';
+import OperatorDetails from './OperatorDetails';
+import { TreasuryIcon } from './icons';
+import RoleTip from './RoleTip';
 import styles from './styles.module.css';
 
 export default function TreasurySection() {
@@ -24,14 +27,22 @@ export default function TreasurySection() {
 
       {mismatch && (
         <div className={`${styles.banner} ${styles.bannerWarn}`}>
-          VITE_TREASURY_ADDRESS does not match the factory&rsquo;s treasury ({factoryTreasury}). New
-          clones will pay into the factory&rsquo;s address, not this one.
+          This treasury is not the one sellers pay into.
+          <OperatorDetails>
+            VITE_TREASURY_ADDRESS does not match the factory&rsquo;s treasury ({factoryTreasury}).
+            New clones will pay into the factory&rsquo;s address, not this one.
+          </OperatorDetails>
         </div>
       )}
 
       <div className={styles.card}>
         <div className={styles.sellerTop}>
-          <AddressLink address={config.treasury} />
+          <div className={styles.splitterFacts}>
+            <RoleTip label="Marketplace treasury">
+              <TreasuryIcon size={40} />
+            </RoleTip>
+            <AddressLink address={config.treasury} />
+          </div>
           <DistributeAllButton />
         </div>
 
@@ -46,13 +57,17 @@ export default function TreasurySection() {
           ))}
 
           <div className={styles.stat}>
-            <div className={styles.statLabel}>Default rate (new sellers)</div>
+            {/* Existing clones freeze their own taxBps at creation, so this is not what current
+                sellers necessarily pay — each seller's details show its own rate. */}
+            <div
+              className={styles.statLabel}
+              title="Applies to splitters created from now on. Existing splitters keep the rate frozen at creation."
+            >
+              Default rate (new sellers)
+            </div>
             <div className={styles.statValue}>
               {registry ? formatTaxBps(registry.factory.defaultTaxBps) : <Skeleton width={48} />}
             </div>
-            {/* Existing clones freeze their own taxBps at creation, so this is not what current
-                sellers necessarily pay — each seller row shows its own rate. */}
-            <div className={styles.statNote}>Existing clones keep their frozen rate</div>
           </div>
         </div>
       </div>

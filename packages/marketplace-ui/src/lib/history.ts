@@ -11,6 +11,9 @@
  * Both filter on indexed args across ALL clones at once, so a sweep is two `getLogs` per
  * chunk regardless of how many sellers exist — never one request per seller.
  *
+ * The window is swept once (`loadHistory`); after that only the blocks since are read
+ * (`readHistorySince`), which is two `getLogs` and is what lets Activity update every tick.
+ *
  * What is deliberately NOT here: which dataset was bought. The item id never reaches the
  * chain (it lives in each x402 server's local SQLite), so a purchase row can say who paid
  * whom and how much, and must not pretend to say more.
@@ -42,6 +45,8 @@ export interface HistoryEntry {
   treasuryAmount?: bigint;
   blockNumber: bigint;
   txHash: `0x${string}`;
+  /** Position in the block. With `blockNumber`, identifies the row: a batch sweep is one tx. */
+  logIndex: number;
   /** Unix ms. Undefined until the block timestamp is resolved (see attachTimestamps). */
   timestamp?: number;
 }
@@ -54,12 +59,101 @@ export interface History {
 
 export const EMPTY_HISTORY: History = { entries: [], partial: false };
 
-/** Newest first, with a stable tiebreak so equal-block rows do not reshuffle between polls. */
+/** Newest first. Block and log index are a total order, so rows never reshuffle between polls. */
 function sortNewestFirst(entries: HistoryEntry[]): HistoryEntry[] {
   return [...entries].sort((a, b) => {
     if (a.blockNumber !== b.blockNumber) return a.blockNumber > b.blockNumber ? -1 : 1;
-    return a.txHash === b.txHash ? 0 : a.txHash > b.txHash ? -1 : 1;
+    return b.logIndex - a.logIndex;
   });
+}
+
+const entryKey = (e: HistoryEntry) => `${e.blockNumber}:${e.logIndex}`;
+
+/** What a sweep covered, so the next read can pick up where it stopped. */
+export interface SweepResult {
+  history: History;
+  /** The block the sweep read through. */
+  head: bigint;
+  /** A node error cut the sweep short — worth repeating, unlike a window that is simply long. */
+  interrupted: boolean;
+}
+
+interface RangeQuery {
+  tokens: ReturnType<typeof erc20Currencies>;
+  splitters: Address[];
+  byAddress: Map<string, Currency>;
+  cloneSet: Set<string>;
+}
+
+function rangeQuery(splitters: Address[], currencies: Currency[]): RangeQuery {
+  const tokens = erc20Currencies(currencies);
+  return {
+    tokens,
+    splitters,
+    byAddress: new Map(tokens.map((c) => [c.address.toLowerCase(), c as Currency])),
+    cloneSet: new Set(splitters.map((s) => s.toLowerCase())),
+  };
+}
+
+/** Purchases and payouts in one block range: two `getLogs`, whatever the number of clones. */
+async function readRange(
+  client: PublicClient,
+  query: RangeQuery,
+  fromBlock: bigint,
+  toBlock: bigint,
+): Promise<HistoryEntry[]> {
+  const { tokens, splitters, byAddress, cloneSet } = query;
+  const [transfers, distributions] = await Promise.all([
+    // `to` is indexed, so one filter covers every clone.
+    client.getLogs({
+      address: tokens.map((c) => c.address),
+      event: TRANSFER_EVENT,
+      args: { to: splitters },
+      fromBlock,
+      toBlock,
+    }),
+    client.getLogs({ address: splitters, event: DISTRIBUTED_EVENT, fromBlock, toBlock }),
+  ]);
+
+  const entries: HistoryEntry[] = [];
+  for (const log of transfers) {
+    const currency = byAddress.get(log.address.toLowerCase());
+    const to_ = log.args.to;
+    const value = log.args.value;
+    if (!currency || !to_ || value === undefined) continue;
+    // A clone can also receive from a non-buyer; the row is still money in, so keep it.
+    if (!cloneSet.has(to_.toLowerCase())) continue;
+    entries.push({
+      kind: 'purchase',
+      splitter: to_,
+      from: log.args.from,
+      currency,
+      amount: value,
+      blockNumber: log.blockNumber,
+      txHash: log.transactionHash,
+      logIndex: log.logIndex,
+    });
+  }
+
+  for (const log of distributions) {
+    const token = log.args.token;
+    const sellerAmount = log.args.sellerAmount;
+    const treasuryAmount = log.args.treasuryAmount;
+    const currency = token ? byAddress.get(token.toLowerCase()) : undefined;
+    if (!currency || sellerAmount === undefined || treasuryAmount === undefined) continue;
+    entries.push({
+      kind: 'payout',
+      splitter: log.address,
+      currency,
+      amount: sellerAmount + treasuryAmount,
+      sellerAmount,
+      treasuryAmount,
+      blockNumber: log.blockNumber,
+      txHash: log.transactionHash,
+      logIndex: log.logIndex,
+    });
+  }
+  return entries;
 }
 
 export interface LoadHistoryOptions {
@@ -81,19 +175,17 @@ export interface LoadHistoryOptions {
 export async function loadHistory(
   client: PublicClient,
   options: LoadHistoryOptions,
-): Promise<History> {
+): Promise<SweepResult> {
   const { splitters, currencies, fromBlock, chunkBlocks, maxChunks, limit } = options;
-  if (splitters.length === 0) return EMPTY_HISTORY;
-
-  const tokens = erc20Currencies(currencies);
-  const byAddress = new Map(tokens.map((c) => [c.address.toLowerCase(), c as Currency]));
-  const cloneSet = new Set(splitters.map((s) => s.toLowerCase()));
-
   const head = await client.getBlockNumber();
+  if (splitters.length === 0) return { history: EMPTY_HISTORY, head, interrupted: false };
+
+  const query = rangeQuery(splitters, currencies);
   const entries: HistoryEntry[] = [];
   // Spend the chunk budget on the newest blocks, not the oldest — see `sweepStart`.
   const { start, truncated } = sweepStart(head, fromBlock, chunkBlocks, maxChunks);
   let partial = truncated;
+  let interrupted = false;
 
   // **Backward, from head**, in parallel groups. Not a style preference: the reasons a chunk
   // fails all live at the old end of the range. Public nodes prune logs (publicnode answers
@@ -108,23 +200,8 @@ export async function loadHistory(
     const group = ranges.slice(i, i + LOG_SWEEP_CONCURRENCY);
     const settledGroup = await Promise.all(
       group.map(([from, to]) =>
-        Promise.all([
-          // `to` is indexed, so one filter covers every clone.
-          client.getLogs({
-            address: tokens.map((c) => c.address),
-            event: TRANSFER_EVENT,
-            args: { to: splitters },
-            fromBlock: from,
-            toBlock: to,
-          }),
-          client.getLogs({
-            address: splitters,
-            event: DISTRIBUTED_EVENT,
-            fromBlock: from,
-            toBlock: to,
-          }),
-        ]).then(
-          ([transfers, distributions]) => ({ ok: true as const, transfers, distributions }),
+        readRange(client, query, from, to).then(
+          (found) => ({ ok: true as const, found }),
           (err: unknown) => ({ ok: false as const, err, from, to }),
         ),
       ),
@@ -141,67 +218,82 @@ export async function loadHistory(
             (result.err instanceof Error ? result.err.message : String(result.err)),
         );
         partial = true;
+        interrupted = true;
         stop = true;
         continue;
       }
-
-      for (const log of result.transfers) {
-        const currency = byAddress.get(log.address.toLowerCase());
-        const to_ = log.args.to;
-        const value = log.args.value;
-        if (!currency || !to_ || value === undefined) continue;
-        // A clone can also receive from a non-buyer; the row is still money in, so keep it.
-        if (!cloneSet.has(to_.toLowerCase())) continue;
-        entries.push({
-          kind: 'purchase',
-          splitter: to_,
-          from: log.args.from,
-          currency,
-          amount: value,
-          blockNumber: log.blockNumber,
-          txHash: log.transactionHash,
-        });
-      }
-
-      for (const log of result.distributions) {
-        const token = log.args.token;
-        const sellerAmount = log.args.sellerAmount;
-        const treasuryAmount = log.args.treasuryAmount;
-        const currency = token ? byAddress.get(token.toLowerCase()) : undefined;
-        if (!currency || sellerAmount === undefined || treasuryAmount === undefined) continue;
-        entries.push({
-          kind: 'payout',
-          splitter: log.address,
-          currency,
-          amount: sellerAmount + treasuryAmount,
-          sellerAmount,
-          treasuryAmount,
-          blockNumber: log.blockNumber,
-          txHash: log.transactionHash,
-        });
-      }
+      entries.push(...result.found);
     }
     if (stop) break;
   }
 
-  return { entries: sortNewestFirst(entries).slice(0, limit), partial };
+  return {
+    history: { entries: sortNewestFirst(entries).slice(0, limit), partial },
+    head,
+    interrupted,
+  };
+}
+
+/**
+ * Blocks re-read behind the last head on every incremental read. A load-balanced node can answer
+ * `eth_blockNumber` from a node that is a block or two ahead of the one serving `eth_getLogs`, and
+ * a log missed that way would never be read again. Overlapping rows are merged by key.
+ */
+const OVERLAP_BLOCKS = 12n;
+
+/**
+ * Purchases and payouts since `throughBlock` — two `getLogs`, cheap enough for every tick.
+ *
+ * Undefined when the gap is wider than one chunk (a tab left hidden for days): the caller sweeps
+ * the window again instead. Throws on a node error, so the caller keeps its cursor and retries the
+ * same range on the next tick.
+ */
+export async function readHistorySince(
+  client: PublicClient,
+  throughBlock: bigint,
+  options: { splitters: Address[]; currencies: Currency[]; chunkBlocks: bigint },
+): Promise<{ entries: HistoryEntry[]; head: bigint } | undefined> {
+  const head = await client.getBlockNumber();
+  if (head - throughBlock > options.chunkBlocks) return undefined;
+  if (head <= throughBlock || options.splitters.length === 0) return { entries: [], head };
+  const from = throughBlock > OVERLAP_BLOCKS ? throughBlock - OVERLAP_BLOCKS + 1n : 0n;
+  const query = rangeQuery(options.splitters, options.currencies);
+  return { entries: await readRange(client, query, from, head), head };
+}
+
+/**
+ * Fold newly read rows into `previous`, keeping the newest `limit`. Returns `previous` itself when
+ * nothing is new, so an idle tick re-renders nothing.
+ */
+export function mergeHistory(previous: History, fresh: HistoryEntry[], limit: number): History {
+  const known = new Set(previous.entries.map(entryKey));
+  const added = fresh.filter((e) => !known.has(entryKey(e)));
+  if (added.length === 0) return previous;
+  return {
+    entries: sortNewestFirst([...added, ...previous.entries]).slice(0, limit),
+    partial: previous.partial,
+  };
 }
 
 /**
  * Block timestamps, cached for the life of the page.
  *
- * A settled block's timestamp never changes, and the sweep re-runs every few ticks over
+ * A settled block's timestamp never changes, and the table is re-timed after every read over
  * largely the same rows — without this, every refresh would re-fetch every timestamp it
  * already had. Bounded by HISTORY_LIMIT distinct blocks in practice.
  */
 const blockTimes = new Map<bigint, number>();
 
+/** Block-time reads per request; see `attachTimestamps`. */
+const TIMESTAMP_GROUP = 8;
+
 /**
  * Fill in the timestamps that are already cached, synchronously.
  *
- * `loadHistory` returns rows with no timestamp at all, so anything rendered between the sweep and
- * `attachTimestamps` resolving sees every row as timeless — that window opens on *every* sweep,
- * not just the first. A consumer filtering by time would empty itself twice a minute. This costs
+ * `loadHistory` and `readHistorySince` return rows with no timestamp at all, so anything rendered
+ * between the read and `attachTimestamps` resolving sees every row as timeless — that window opens
+ * on *every* read, not just the first. A consumer filtering by time would empty itself whenever a
+ * purchase landed. This costs
  * nothing and closes the window after the first sweep, since a settled block's timestamp is
  * cached for the life of the page.
  */
@@ -222,16 +314,53 @@ export async function attachTimestamps(
 ): Promise<HistoryEntry[]> {
   const missing = [...new Set(entries.map((e) => e.blockNumber))].filter((b) => !blockTimes.has(b));
 
-  await Promise.all(
-    missing.map(async (blockNumber) => {
-      try {
-        const block = await client.getBlock({ blockNumber });
-        blockTimes.set(blockNumber, Number(block.timestamp) * 1000);
-      } catch {
-        /* leave undefined; retried on the next sweep */
-      }
-    }),
-  );
+  // In small groups, one after another. After the first sweep this is ~100 blocks, and sent at
+  // once the transport batches them into one request of ~100 calls — which a public RPC meters
+  // call by call and answers with 429s, failing most of them.
+  for (let i = 0; i < missing.length; i += TIMESTAMP_GROUP) {
+    await Promise.all(
+      missing.slice(i, i + TIMESTAMP_GROUP).map(async (blockNumber) => {
+        try {
+          const block = await client.getBlock({ blockNumber });
+          blockTimes.set(blockNumber, Number(block.timestamp) * 1000);
+        } catch {
+          /* leave undefined; retried on the next read */
+        }
+      }),
+    );
+  }
 
   return entries.map((e) => ({ ...e, timestamp: blockTimes.get(e.blockNumber) }));
+}
+
+/**
+ * A display-only estimate for a row whose block timestamp has not been fetched yet (or whose
+ * fetch failed — a rate-limited `eth_getBlock` is retried only on the next sweep).
+ *
+ * Extrapolated from the nearest row that does have a time, at the block rate measured across the
+ * timed rows themselves, so no per-chain block time is hardcoded. Never use this to filter or
+ * sort: the period filter keeps its single exact notion of "when" (see `graph.ts`). Undefined when
+ * fewer than two distinct timed blocks exist to measure a rate from.
+ */
+export function estimateTimestamp(
+  blockNumber: bigint,
+  entries: HistoryEntry[],
+): number | undefined {
+  const timed = entries.filter((e) => e.timestamp !== undefined);
+  if (timed.length < 2) return undefined;
+
+  let newest = timed[0];
+  let oldest = timed[0];
+  let nearest = timed[0];
+  for (const e of timed) {
+    if (e.blockNumber > newest.blockNumber) newest = e;
+    if (e.blockNumber < oldest.blockNumber) oldest = e;
+    const d = (b: bigint) => (b > blockNumber ? b - blockNumber : blockNumber - b);
+    if (d(e.blockNumber) < d(nearest.blockNumber)) nearest = e;
+  }
+  const blocks = Number(newest.blockNumber - oldest.blockNumber);
+  if (blocks <= 0) return undefined;
+
+  const msPerBlock = (newest.timestamp! - oldest.timestamp!) / blocks;
+  return nearest.timestamp! + Number(blockNumber - nearest.blockNumber) * msPerBlock;
 }

@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { Address } from 'viem';
 import { useMarketplace } from '../context/MarketplaceContext';
-import { config } from '../config/env';
-import { catalogUrl } from '../lib/agents';
+import JsonDocumentDialog, { isPlainClick } from './JsonDocumentDialog';
 import styles from './styles.module.css';
 
 /**
@@ -10,12 +9,17 @@ import styles from './styles.module.css';
  *
  * The feed owner comes from the Agent Card's `swarm-ai-catalog` service entry, so this depends on
  * the same best-effort card fetch as the agent name — no card, no link. The manifest root then
- * costs a second gateway read, because the feed holds the root rather than being the catalog. So
- * the link appears a beat after the row, the way the agent name does.
+ * costs a second gateway read, because the feed holds the root rather than being the catalog. Both
+ * are read by the context (`refreshSwarmData`), never here, so the link appears a beat after the
+ * row, the way the agent name does.
  *
- * It renders nothing rather than a dead link: a seller can legitimately hold a splitter and
+ * It renders nothing when no catalog root resolves: a seller can legitimately hold a splitter and
  * publish no catalog, and neither an unfetchable card nor an unpublished feed is distinguishable
- * from that here.
+ * from that here. When the feed does name a root but the document behind it 404s — the usual
+ * signature of an expired postage stamp — it says "Catalog unavailable" instead of linking.
+ *
+ * A plain click opens the document in `JsonDocumentDialog`, highlighted, over the dashboard. The
+ * pill stays a real link to the raw file (see `isPlainClick`).
  */
 
 function CatalogIcon() {
@@ -38,32 +42,55 @@ function CatalogIcon() {
 export default function CatalogLink({ splitter }: { splitter: Address }) {
   const { agentLinks } = useMarketplace();
 
-  const owner = agentLinks.bySplitter.get(splitter.toLowerCase())?.card?.catalogFeedOwner;
-  const [href, setHref] = useState<string>();
+  const agent = agentLinks.bySplitter.get(splitter.toLowerCase());
+  const card = agent?.card;
+  const owner = card?.catalogFeedOwner;
+  const link = agent?.catalog;
+  const [open, setOpen] = useState(false);
 
-  useEffect(() => {
-    if (!owner) return;
-    let live = true;
-    void catalogUrl(owner, config.swarmGateway).then((url) => {
-      if (live) setHref(url);
-    });
-    return () => {
-      live = false;
-    };
-  }, [owner]);
+  if (!owner || !link) return null;
+  const href = link.url;
 
-  if (!owner || !href) return null;
+  // The feed names a catalog the gateway cannot serve. Said in words rather than hidden: the
+  // seller did publish one, so a missing link would read as "never had a catalog".
+  if (!link.available) {
+    return (
+      <span
+        className={`${styles.pill} ${styles.pillMuted}`}
+        title={`This seller published a catalog, but it can no longer be retrieved from Swarm — usually because the postage stamp that kept it stored has expired. (${href})`}
+      >
+        <CatalogIcon />
+        Catalog unavailable
+      </span>
+    );
+  }
 
   return (
-    <a
-      className={`${styles.pill} ${styles.pillAccent} ${styles.pillLink}`}
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      title={`Browse this seller's catalog (feed owner ${owner})`}
-    >
-      <CatalogIcon />
-      Catalog
-    </a>
+    <>
+      <a
+        className={`${styles.pill} ${styles.pillAccent} ${styles.pillLink}`}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={`View this seller's catalog (feed owner ${owner})`}
+        onClick={(event) => {
+          if (!isPlainClick(event)) return;
+          event.preventDefault();
+          setOpen(true);
+        }}
+      >
+        <CatalogIcon />
+        Catalog
+      </a>
+      {open && (
+        <JsonDocumentDialog
+          url={href}
+          kicker="Catalog · JSON-LD on Swarm"
+          fallbackTitle={card?.name ?? 'Seller catalog'}
+          immutable
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
   );
 }
