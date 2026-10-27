@@ -6,7 +6,6 @@ import type { Route } from './hooks/useRoute';
 import AppShell from './components/AppShell';
 import StaleBanner from './components/StaleBanner';
 import MapPage from './components/MapPage';
-import DevconPage from './components/DevconPage';
 import ClaimWalletPage from './components/ClaimWalletPage';
 import SellerSection from './components/SellerSection';
 import TreasurySection from './components/TreasurySection';
@@ -50,14 +49,12 @@ function Dashboard() {
 const SUBTITLES: Record<Route, string> = {
   dashboard: 'Marketplace treasury and seller revenue',
   map: 'Agents and the payments between them',
-  devcon: 'Scan to create a buyer agent',
-  'claim-wallet': 'Buy a funded wallet from a seller agent',
+  'claim-wallet': 'Get your own AI agent',
 };
 
 const PAGES: Record<Route, () => JSX.Element> = {
   dashboard: Dashboard,
   map: MapPage,
-  devcon: DevconPage,
   'claim-wallet': ClaimWalletPage,
 };
 

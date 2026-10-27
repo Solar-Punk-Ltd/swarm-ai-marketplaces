@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import type { Chain } from 'viem';
 import { config } from '../config/env';
 import { addressUrl, txUrl } from '../config/chain';
 import styles from './styles.module.css';
@@ -67,29 +68,52 @@ export interface AddressLinkProps {
    * address read as the same kind of thing wherever they sit next to each other.
    */
   kind?: 'address' | 'tx';
+  /** The chain whose explorer the icon opens. Defaults to the dashboard's own chain. */
+  chain?: Chain;
+  /**
+   * A secret (the claim page's private key): copyable, but no explorer link, and the full value
+   * is not put in a hover tooltip.
+   */
+  secret?: boolean;
+  /** What the copy button calls the value, e.g. "private key". */
+  noun?: string;
+  /** Called once the clipboard write has succeeded. */
+  onCopied?: () => void;
 }
 
-export default function AddressLink({ address, label, kind = 'address' }: AddressLinkProps) {
+export default function AddressLink({
+  address,
+  label,
+  kind = 'address',
+  chain = config.chain,
+  secret = false,
+  noun = kind === 'tx' ? 'transaction' : 'address',
+  onCopied,
+}: AddressLinkProps) {
   const [copied, setCopied] = useState(false);
-  const href = kind === 'tx' ? txUrl(config.chain, address) : addressUrl(config.chain, address);
-  const noun = kind === 'tx' ? 'transaction' : 'address';
+  const href = secret
+    ? undefined
+    : kind === 'tx'
+      ? txUrl(chain, address)
+      : addressUrl(chain, address);
 
   const copy = useCallback(() => {
     void navigator.clipboard.writeText(address).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
+      onCopied?.();
     });
-  }, [address]);
+  }, [address, onCopied]);
 
   return (
     <span className={styles.address}>
       {label && <span className={styles.addressLabel}>{label}</span>}
-      <span title={address}>{truncate(address)}</span>
+      <span title={secret ? undefined : address}>{truncate(address)}</span>
       <button
         type="button"
         className={`${styles.iconButton} ${copied ? styles.copied : ''}`}
         onClick={copy}
-        aria-label={copied ? 'Copied' : `Copy ${address}`}
+        aria-label={copied ? 'Copied' : `Copy ${secret ? noun : address}`}
         title={copied ? 'Copied' : `Copy ${noun}`}
       >
         {copied ? <CheckIcon /> : <CopyIcon />}

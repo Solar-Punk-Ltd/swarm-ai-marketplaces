@@ -16,13 +16,14 @@ force-directed view of the same purchases and payouts as a network — agents ar
 between them are edges. The map adds no fetching; it is a second reading of what the Dashboard
 already loads.
 
-Behind `VITE_SHOW_DEMO_FLOW` there are two more pages, demo scaffolding rather than product
-surface: **Devcon** (`/devcon`), a QR code that hands the audience off from the projected
-dashboard to their own phone, and **Claim wallet** (`/claim-wallet`), the page that code points
-at — where a buyer agent is deployed for that visitor and buys one item from a seller agent. With
-the flag off the nav item disappears and both paths resolve to the Dashboard, because a scanned QR
-code outlives the build that printed it. Only `/devcon` is in the nav: you reach `/claim-wallet`
-by scanning, so nothing should highlight while you are on it.
+Behind `VITE_SHOW_DEMO_FLOW` there is one more page, demo scaffolding rather than product
+surface: **Devcon8** (`/claim-wallet`), where a buyer agent is deployed for the visitor and buys
+one item from a seller agent. The nav's Devcon8 tab leads straight to it, and its **Share** button
+shows a QR code of the page itself, so the projected screen — or a visitor's phone — can hand the
+demo on to the next phone. `/devcon` was a separate QR hand-off page; it is now an alias that
+resolves to the claim page, so an old link still lands. With the flag off the nav item disappears
+and both paths resolve to the Dashboard, because a scanned QR code outlives the build that printed
+it.
 
 ## Source of truth
 
@@ -59,7 +60,7 @@ actually cost time, and they are the parts it gives you. It renders to **canvas*
 `AgentGraph.tsx` reads `theme.ts` directly (see Theme). Nothing else may follow it in: the
 exception is for the graph, not a general relaxation.
 
-One narrower exception has since been taken: **`qrcode-generator`**, for the Devcon page's QR code.
+One narrower exception has since been taken: **`qrcode-generator`**, for the claim page's share QR code.
 It is a single package with zero transitive dependencies (21 kB minified, 8 kB gzipped), and the
 alternative was owning ~280 lines of Reed-Solomon error correction, version selection and mask
 scoring — specified, fiddly, and with no interesting failure modes to test against. It is used for
@@ -344,7 +345,7 @@ content.
 
 ## Routing
 
-`hooks/useRoute.ts` is the whole router — four pages, real paths, no dependency. It exports
+`hooks/useRoute.ts` is the whole router — three pages, real paths, no dependency. It exports
 `useRoute()` (the current route), `href(route)`, `linkTo(route)` (href + click handler) and
 `navigate(route)`. Every in-app link goes through `linkTo`; nothing writes a path by hand.
 
@@ -388,8 +389,8 @@ content.
 `MarketplaceProvider` wraps **only the routes in `CHAIN_ROUTES`** (`App.tsx`) — Dashboard and Map.
 It is not mounted above the router, and must not be moved back there.
 
-Mounted globally it polled on every route, including two that read none of it: neither
-`DevconPage` nor `ClaimWalletPage` calls `useMarketplace`, so an open `/claim-wallet` tab paid for
+Mounted globally it polled on every route, including one that reads none of it:
+`ClaimWalletPage` does not call `useMarketplace`, so an open `/claim-wallet` tab paid for
 balances every 5s, two `eth_getLogs` every 30s, and a registry + Agent Card sweep every 60s while
 rendering none of it. That page runs on a visitor's phone over conference wifi, against the same
 2s claim poll that is also its heartbeat.
@@ -400,9 +401,12 @@ Three consequences to keep in mind:
   signs distributions and nothing else, and on a visitor's phone a "No wallet detected" pill read
   as an error. `WalletProvider` stays global — it binds to an injected
   provider rather than polling anything. With no provider at all, `ConnectButton` renders nothing.
-- **No nav on `/claim-wallet`.** The visitor's agent is shut down when they leave the page, so a
-  tap on "Dashboard" mid-run would cost them the purchase. Once delivered, the page offers its own
-  link to the Map.
+- **No nav on `/claim-wallet` while an agent runs.** The visitor's agent is shut down when they
+  leave the page, so a tap on "Dashboard" mid-run would cost them the purchase. The page calls
+  `useNavLock(running)` and `AppShell` hides the nav for exactly that window — from Start until the
+  claim is delivered, failed, expired or released. Before Start the nav is there, because the
+  Devcon8 tab leads here and a page with no way back would be a dead end. Once delivered, the page
+  also offers its own link to the Map.
 - **Dashboard ↔ Map does not refetch.** Both render `MarketplaceProvider` at the same position, so
   React keeps it mounted across that switch. Entering a demo route unmounts it and returning
   reloads from scratch — a few seconds of skeletons, against data that was 5s-fresh anyway.
@@ -560,6 +564,16 @@ second purchase; leaving the animation out reads as the page having lost somethi
 decided once, so a live run keeps its played-out ending. `settled` is the local patch to the
 vendored script described under _Tech stack_.
 
+**A caption under the animation says what it means.** One large line (`FadeCaption`) per phase —
+setup (the first three steps, which go by in seconds), seller discovery, purchase, and the closing
+"Two agents just traded…" — crossfading between them: the checklist says _what happened_, the
+caption says _why it matters_. The opening line is on screen from the first frame; only changes
+fade. It follows the **scene on screen**, not the claim's step — `BuyerAgentAnim`'s `onScene` reads
+the script's own `scene()` four times a second — so when a poll jumps ahead and the script is still
+playing the scenes in between, words and picture stay together. Two lines of height are reserved,
+so a caption never moves the animation, and the animation keeps its own proportions rather than
+filling the column, sitting at the top of it. No caption for a failed or expired run.
+
 Polling is 2s while the claim is pre-terminal and 5s after. The server only folds in the buyer's
 emitted steps when it is polled, so that cadence _is_ the resolution of this display.
 
@@ -567,7 +581,15 @@ emitted steps when it is polled, so that cadence _is_ the resolution of this dis
 
 The payoff of the demo, and the seller sells gift codes, so it has to be actionable from a phone:
 monospace, `user-select: all`, and a one-tap copy button. It **scrolls inside its own container** —
-a long code must never push the phone layout sideways.
+a long code must never push the phone layout sideways. It sits under its own heading, "Your agent
+bought this for you." — once delivered that line leaves the top of the card, where the captions
+have already told the story.
+
+**A voucher reads like the Dashboard.** Its wallet address and private key are `AddressLink`s,
+abbreviated with a copy button, like every address on the Dashboard: the address links to the
+**Gnosis** explorer (`chain={gnosis}` — the wallet is not on the dashboard's chain), the key is
+`secret`, so it gets no explorer link and no full-value hover tooltip. The key's QR code stays
+under them.
 
 It keeps rendering after the agent is released. The API captures the content onto the claim record
 before tearing the container down, precisely so the item outlives the agent; the visitor paid for
@@ -579,10 +601,9 @@ only copy. `lib/deliveredStore.ts` writes the completed claim to `localStorage` 
 and `useClaim` restores it on load. Four rules hold it together:
 
 - **Bounded.** Kept until the visitor copies the key, or 2 weeks after delivery (`MAX_AGE_MS`,
-  counted from the first write, not the last poll). Expiry is checked on read. A copy is the Copy
-  button's successful clipboard write, or a keyboard / context-menu copy whose selection contains
-  the whole key — caught by a `document` listener, since `copy` fires where the selection starts.
-  Scanning the QR code cannot be detected; the expiry covers that path.
+  counted from the first write, not the last poll). Expiry is checked on read. A copy is the key's copy
+  button's successful clipboard write (`onCopied`); the key is never on screen in full, so there is
+  no selection to catch. Scanning the QR code cannot be detected; the expiry covers that path.
 - **Copying strips the key but keeps the record.** That tombstone is what tells a reloaded page
   a purchase already happened. Without it the page offers Start, and `createClaim` for a released
   claim deploys a second funded agent — `find_by_token` reattaches only unreleased claims. After a
@@ -866,19 +887,19 @@ splitter row filters on it (native entries are dropped entirely).
 All are Vite build-time vars and **must** carry the `VITE_` prefix — Vite exposes nothing else to
 the browser. All values here are public; there is no secret in this package.
 
-| Variable                            | Required | Default                    | Purpose                                                         |
-| ----------------------------------- | -------- | -------------------------- | --------------------------------------------------------------- |
-| `VITE_TREASURY_ADDRESS`             | yes      | —                          | Marketplace treasury shown in the Treasury section              |
-| `VITE_SPLITTER_FACTORY_ADDRESS`     | yes      | —                          | `SplitterFactory` to enumerate                                  |
-| `VITE_CHAIN_ID`                     | no       | `84532`                    | Base Sepolia. Selects the viem chain and the currency config    |
-| `VITE_RPC_URL`                      | no       | `https://sepolia.base.org` | **Required in practice** — the public node rate-limits          |
-| `VITE_REFRESH_INTERVAL_MS`          | no       | `5000`                     | Balance poll interval                                           |
-| `VITE_IDENTITY_REGISTRY_ADDRESS`    | no       | known per chain            | ERC-8004 registry, for labelling rows with their agent          |
-| `VITE_IDENTITY_REGISTRY_FROM_BLOCK` | no       | registry deploy block      | Start of the `agent_splitter` log sweep                         |
-| `VITE_LOG_CHUNK_BLOCKS`             | no       | `500000`                   | Blocks per `eth_getLogs` call; lower it if the index is partial |
-| `VITE_SHOW_DEMO_FLOW`               | no       | `false`                    | Enables `/devcon` and `/claim-wallet`. `"true"`/`"false"` only  |
-| `VITE_DEMO_FLOW_BASE_URL`           | no       | `window.location.origin`   | Base URL the demo QR encodes; only read when the flag is on     |
-| `VITE_DEVCON_API_URL`               | no       | —                          | `agent-orchestration-api` base URL for `/claim-wallet`          |
+| Variable                            | Required | Default                    | Purpose                                                            |
+| ----------------------------------- | -------- | -------------------------- | ------------------------------------------------------------------ |
+| `VITE_TREASURY_ADDRESS`             | yes      | —                          | Marketplace treasury shown in the Treasury section                 |
+| `VITE_SPLITTER_FACTORY_ADDRESS`     | yes      | —                          | `SplitterFactory` to enumerate                                     |
+| `VITE_CHAIN_ID`                     | no       | `84532`                    | Base Sepolia. Selects the viem chain and the currency config       |
+| `VITE_RPC_URL`                      | no       | `https://sepolia.base.org` | **Required in practice** — the public node rate-limits             |
+| `VITE_REFRESH_INTERVAL_MS`          | no       | `5000`                     | Balance poll interval                                              |
+| `VITE_IDENTITY_REGISTRY_ADDRESS`    | no       | known per chain            | ERC-8004 registry, for labelling rows with their agent             |
+| `VITE_IDENTITY_REGISTRY_FROM_BLOCK` | no       | registry deploy block      | Start of the `agent_splitter` log sweep                            |
+| `VITE_LOG_CHUNK_BLOCKS`             | no       | `500000`                   | Blocks per `eth_getLogs` call; lower it if the index is partial    |
+| `VITE_SHOW_DEMO_FLOW`               | no       | `false`                    | Enables `/claim-wallet` (alias `/devcon`). `"true"`/`"false"` only |
+| `VITE_DEMO_FLOW_BASE_URL`           | no       | `window.location.origin`   | Base URL the demo QR encodes; only read when the flag is on        |
+| `VITE_DEVCON_API_URL`               | no       | —                          | `agent-orchestration-api` base URL for `/claim-wallet`             |
 
 `VITE_RPC_URL` is not in the original spec for this dashboard but is not optional in reality:
 `VITE_CHAIN_ID` selects a chain, it does not provide a transport. Mirror the wording of
@@ -1062,6 +1083,7 @@ src/
     useRoute.ts             — the path router: useRoute, navigate, href, linkTo
     useClaim.ts             — the claim lifecycle: claim, poll/heartbeat, release on close
     usePolling.ts           — interval + document.hidden pause
+    useNavLock.ts           — lets the claim page hide the nav while its agent runs
     useTxLifecycle.ts       — shared idle/signing/pending/confirmed state machine
     useDistribute.ts        — one clone; wraps useTxLifecycle
     useDistributeAll.ts     — batch sweep; wraps the same useTxLifecycle
@@ -1079,7 +1101,7 @@ src/
     roleSprites.tsx         — the same icons as canvas images for the Map of Agents
     StaleBanner.tsx         — last-tick-failed notice; used by both views
     MapPage.tsx             — Map of Agents: period filter, memo gate, live node objects
-    DevconPage.tsx          — demo hand-off: the QR code and its resolved URL
+    ShareQr.tsx             — the claim page's Share toggle and QR code of its own URL
     ClaimWalletPage.tsx     — the QR code's target; the claim state machine, phone-first
     BuyerAgentAnim.tsx      — React wrapper around vendor/buyer-agent-anim.js; forwards the step
     QrCode.tsx              — QR matrix as inline SVG; dark-on-light, 4-module quiet zone

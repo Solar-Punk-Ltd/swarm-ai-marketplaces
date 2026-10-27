@@ -9,6 +9,9 @@ import '../vendor/buyer-agent-anim.js';
  * therefore just forwards the step; it must not try to sequence or debounce anything itself.
  */
 
+/** The scene on screen, which can lag the step: every scene plays for its minimum time. */
+export type AnimScene = 'boot' | 'search' | 'found' | 'pay' | 'deliver' | 'download' | 'done';
+
 export type AnimStep =
   | 'created'
   | 'funded'
@@ -23,6 +26,7 @@ export type AnimStep =
 
 interface AnimHandle {
   setStep(step: AnimStep): void;
+  scene(): AnimScene;
   destroy(): void;
 }
 
@@ -38,6 +42,7 @@ export default function BuyerAgentAnim({
   step,
   settled = false,
   className,
+  onScene,
 }: {
   step: AnimStep;
   /**
@@ -48,16 +53,34 @@ export default function BuyerAgentAnim({
    */
   settled?: boolean;
   className?: string;
+  /**
+   * Called when the scene on screen changes. For anything narrating the animation (the caption
+   * under it): following the scene rather than `step` keeps words and picture in step when a poll
+   * jumps ahead and the script is still playing the scenes in between.
+   */
+  onScene?: (scene: AnimScene) => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const handle = useRef<AnimHandle>();
+  const onSceneRef = useRef(onScene);
+  onSceneRef.current = onScene;
 
   // Mounted once. `destroy` removes the SVG, so StrictMode's double mount leaves exactly one.
   useEffect(() => {
     if (!box.current) return;
     const anim = window.BuyerAgentAnim.mount(box.current, settled ? { step, settled } : undefined);
     handle.current = anim;
+    // The script has no scene callback, but `scene()` is part of its API. A scene lasts seconds,
+    // so a quarter-second poll is plenty, and it needs no patch to the vendored file.
+    let last: AnimScene | undefined;
+    const watch = setInterval(() => {
+      const scene = anim.scene();
+      if (scene === last) return;
+      last = scene;
+      onSceneRef.current?.(scene);
+    }, 250);
     return () => {
+      clearInterval(watch);
       anim.destroy();
       handle.current = undefined;
     };

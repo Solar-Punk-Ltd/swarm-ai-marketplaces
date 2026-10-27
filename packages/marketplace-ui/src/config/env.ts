@@ -26,12 +26,12 @@ export interface AppConfig {
    */
   swarmGateway: string;
   /**
-   * Devcon demo pages (`/devcon`, `/claim-wallet`). Off by default — they are demo scaffolding,
+   * Devcon demo page (`/claim-wallet`, alias `/devcon`). Off by default — they are demo scaffolding,
    * not product surface, so the nav item and both routes disappear when this is false.
    */
   showDemoFlow: boolean;
   /**
-   * Base URL the `/devcon` QR code points at. Undefined means `window.location.origin`, which is
+   * Base URL the claim page's share QR code points at. Undefined means `window.location.origin`, which is
    * only scannable when the dashboard is served over the network — a phone cannot resolve
    * localhost. Stored without a trailing slash.
    */

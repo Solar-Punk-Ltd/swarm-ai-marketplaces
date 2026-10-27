@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { config } from '../config/env';
+import { NavLockContext } from '../hooks/useNavLock';
 import { linkTo } from '../hooks/useRoute';
 import type { Route } from '../hooks/useRoute';
 import ConnectButton from './ConnectButton';
@@ -9,13 +11,12 @@ import styles from './styles.module.css';
  * `demo` entries are dropped unless VITE_SHOW_DEMO_FLOW is on. Filtered rather than conditionally
  * built so the array stays a declaration of every page there is.
  *
- * `claim-wallet` is deliberately absent: you arrive there by scanning the code on `/devcon`, so
- * no nav item highlights while you are on it.
+ * Devcon8 is the claim page itself: a visitor who scans its share QR lands on the same page.
  */
 const NAV: { route: Route; label: string; demo?: boolean }[] = [
   { route: 'dashboard', label: 'Dashboard' },
   { route: 'map', label: 'Map of Agents' },
-  { route: 'devcon', label: 'Devcon8', demo: true },
+  { route: 'claim-wallet', label: 'Devcon8', demo: true },
 ];
 
 export interface AppShellProps {
@@ -31,6 +32,8 @@ export interface AppShellProps {
 }
 
 export default function AppShell({ route, subtitle, showWallet, children }: AppShellProps) {
+  const [navLocked, setNavLocked] = useState(false);
+
   return (
     <main className={styles.page}>
       <header className={styles.header}>
@@ -73,9 +76,9 @@ export default function AppShell({ route, subtitle, showWallet, children }: AppS
         </div>
       </header>
 
-      {/* No nav on the claim page: the visitor's agent is shut down when they leave it, so a tap on
-          "Dashboard" mid-run would cost them the purchase they are watching. */}
-      {route !== 'claim-wallet' && (
+      {/* Hidden while the claim page's agent is running: it is shut down when the visitor leaves,
+          so a tap on "Dashboard" mid-run would cost them the purchase they are watching. */}
+      {!navLocked && (
         <nav className={styles.nav}>
           {NAV.filter((item) => !item.demo || config.showDemoFlow).map((item) => (
             <a
@@ -90,7 +93,7 @@ export default function AppShell({ route, subtitle, showWallet, children }: AppS
         </nav>
       )}
 
-      {children}
+      <NavLockContext.Provider value={setNavLocked}>{children}</NavLockContext.Provider>
     </main>
   );
 }

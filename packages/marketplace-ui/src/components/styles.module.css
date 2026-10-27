@@ -1088,7 +1088,7 @@
   }
 }
 
-/* ── Devcon demo (/devcon) ───────────────────────────────────────────────── */
+/* ── Share QR (claim page) ─────────────────────────────────────────────────── */
 
 .qrCard {
   display: flex;
@@ -1146,8 +1146,33 @@
 }
 
 /* ── Claim wallet (demo) ──────────────────────────────────────────────────────
-   Phone-first: this page is only ever reached by scanning the /devcon QR code,
-   so it is laid out for a single narrow column rather than the dashboard grid. */
+   Phone-first: most visitors reach this page by scanning its share QR code, so it
+   is laid out for a single narrow column rather than the dashboard grid. */
+
+.claimHead {
+  align-items: center;
+}
+
+/* The share panel sits between the title row and the claim card. */
+.claimHead + .qrCard {
+  margin-bottom: 0.75rem;
+  max-width: 52rem;
+}
+
+.claimIntro {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--mp-text);
+}
+
+.claimIntroBody {
+  margin: 0.5rem 0 1rem;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--mp-text);
+  max-width: 40ch;
+}
 
 .claimCard {
   background: var(--mp-surface);
@@ -1157,9 +1182,8 @@
   max-width: 52rem;
 }
 
-/* Lead + checklist on the left, the buyer-agent animation in the free space on the right. The
-   animation's SVG fills its box and keeps its own 440×270 proportions, so on desktop it simply
-   letterboxes into whatever height the checklist gives it. */
+/* Lead + checklist on the left; the buyer-agent animation and its caption in the free space on
+   the right (see .claimStage). */
 .claimTop {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -1171,9 +1195,51 @@
   min-width: 0;
 }
 
+/* Animation and caption as one block, centred in the column beside the checklist. The animation
+   keeps its own 440×270 proportions rather than stretching to the column, so it sits higher and
+   the caption reads as belonging to it. */
+.claimStage {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+/* Pulled up: the drawing has empty sky above the antennas. */
 .claimAnim {
   position: relative;
-  min-height: 220px;
+  aspect-ratio: 440 / 270;
+  margin-top: -0.75rem;
+}
+
+/* One line of context under the animation, crossfading as the scene changes (FADE_MS in
+   ClaimWalletPage matches the transition). Room for two lines is reserved, so a longer line does
+   not shift the animation above it. */
+.claimCaption {
+  margin: 0 0 1.5rem;
+  min-height: 2.9em;
+  font-size: 19px;
+  line-height: 1.45;
+  text-align: center;
+  color: var(--mp-text);
+  text-wrap: balance;
+  opacity: 0;
+  transform: translateY(4px);
+  transition:
+    opacity 400ms ease,
+    transform 400ms ease;
+}
+
+.claimCaptionOn {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .claimCaption {
+    transform: none;
+    transition: none;
+  }
 }
 
 .claimAnim > svg {
@@ -1188,10 +1254,12 @@
     grid-template-columns: minmax(0, 1fr);
     gap: 0.5rem;
   }
-  .claimAnim {
+  .claimStage {
     order: -1;
-    min-height: 0;
-    aspect-ratio: 440 / 270;
+  }
+  .claimCaption {
+    font-size: 16px;
+    margin-bottom: 1.5rem;
   }
 }
 
@@ -1363,6 +1431,61 @@
   border: 1px solid var(--mp-accent);
   border-radius: 3px;
   background: var(--mp-accent-soft);
+}
+
+/* "Your agent bought this for you." — the item's own heading, under the steps. */
+.claimItemLead {
+  margin: 1.1rem 0 0.5rem;
+}
+
+/* A voucher: the key's QR code on the left, the wallet's details beside it. */
+.claimWallet {
+  display: flex;
+  gap: 1.25rem;
+  align-items: flex-start;
+}
+
+.claimWalletQr {
+  flex: none;
+  display: flex;
+}
+
+.claimWalletInfo {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Address and key: label, then value right beside it — not pushed to the far edge, which left
+   a wide gap on desktop. */
+.claimWalletRows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-bottom: 0.6rem;
+}
+
+.claimWallet .claimItemHead {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin-bottom: 0.7rem;
+}
+
+.claimWalletRows .claimFact {
+  justify-content: flex-start;
+}
+
+.claimWalletRows .claimFactLabel {
+  flex: 0 0 6.5rem;
+}
+
+@media (max-width: 520px) {
+  .claimWallet {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .claimWalletQr {
+    justify-content: center;
+  }
 }
 
 .claimItemHead {

@@ -2,10 +2,16 @@ import { useSyncExternalStore } from 'react';
 import type { MouseEvent } from 'react';
 import { config } from '../config/env';
 
-export type Route = 'dashboard' | 'map' | 'devcon' | 'claim-wallet';
+export type Route = 'dashboard' | 'map' | 'claim-wallet';
 
-/** Reachable only while VITE_SHOW_DEMO_FLOW is on. */
-const DEMO_ROUTES: string[] = ['devcon', 'claim-wallet'];
+/**
+ * Reachable only while VITE_SHOW_DEMO_FLOW is on. `devcon` was a QR hand-off page of its own; it
+ * is now an alias of the claim page (which carries its own QR), kept so an old link still lands.
+ */
+const DEMO_ROUTES = new Map<string, Route>([
+  ['devcon', 'claim-wallet'],
+  ['claim-wallet', 'claim-wallet'],
+]);
 
 /**
  * The path this app is served from, always with a trailing slash — `/` on a normal host,
@@ -28,7 +34,7 @@ function slugOf(pathname: string): string {
 }
 
 /**
- * `/map` is the map, `/devcon` and `/claim-wallet` are the demo pages, and everything else —
+ * `/map` is the map, `/claim-wallet` (or its old alias `/devcon`) the demo page, and everything else —
  * including `/` and any unknown path — is the home route.
  *
  * A demo path that outlives the flag resolves to the dashboard rather than a page the build is
@@ -37,7 +43,8 @@ function slugOf(pathname: string): string {
 function parseRoute(pathname: string): Route {
   const slug = slugOf(pathname);
   if (slug === 'map') return 'map';
-  if (DEMO_ROUTES.includes(slug)) return config.showDemoFlow ? (slug as Route) : 'dashboard';
+  const demo = DEMO_ROUTES.get(slug);
+  if (demo) return config.showDemoFlow ? demo : 'dashboard';
   return 'dashboard';
 }
 

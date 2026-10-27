@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { gnosis } from 'viem/chains';
 import useClaim from '../hooks/useClaim';
+import { useNavLock } from '../hooks/useNavLock';
 import { linkTo } from '../hooks/useRoute';
 import { parseVoucher, type Claim, type ClaimItem, type ClaimState } from '../lib/devcon';
 import AddressLink from './AddressLink';
-import BuyerAgentAnim, { type AnimStep } from './BuyerAgentAnim';
+import BuyerAgentAnim, { type AnimScene, type AnimStep } from './BuyerAgentAnim';
 import QrCode from './QrCode';
+import ShareQr, { ShareQrToggle } from './ShareQr';
 import styles from './styles.module.css';
 
 /**
- * The QR code's target — the phone-side surface, reached by scanning `/devcon`.
+ * The Devcon8 page — the nav's Devcon8 tab, and the target of its own share QR code.
  *
  * When the visitor presses Start it asks `agent-orchestration-api` to deploy a buyer agent, narrates
  * what that agent does, and shows what it bought. The agent is handed back when this page closes,
@@ -261,6 +264,74 @@ function animStep(claim: Claim): AnimStep {
   return ANIM_STEP[key];
 }
 
+/**
+ * One line under the animation saying what is going on in the big picture — the checklist says
+ * what happened, this says why it matters. Four lines for four phases, keyed by the scene on
+ * screen so the words change when the picture does. The first three steps go by in seconds, so
+ * they share one line, and it is there from the first frame rather than fading in.
+ */
+type CaptionPhase = 'setup' | 'discover' | 'purchase' | 'done';
+
+const CAPTIONS: Record<CaptionPhase, string> = {
+  setup: 'An AI agent is created just for you, with its own wallet and test USDC to spend.',
+  discover:
+    'It finds a seller agent in the on-chain ERC-8004 registry, selling data stored on Swarm.',
+  purchase: 'It pays the seller directly over x402 and fetches what it bought from Swarm.',
+  done: 'Two agents just traded, with no one in between holding the money or the data.',
+};
+
+const PHASE_OF: Record<AnimScene, CaptionPhase> = {
+  boot: 'setup',
+  search: 'discover',
+  found: 'discover',
+  pay: 'purchase',
+  deliver: 'purchase',
+  download: 'purchase',
+  done: 'done',
+};
+
+function captionFor(scene: AnimScene | undefined, claim: Claim): string | undefined {
+  if (claim.released && claim.state !== 'delivered') return undefined;
+  if (claim.state === 'expired' || claim.state === 'failed') return undefined;
+  // Before the animation reports its first scene (a quarter second): the opening line, so it is
+  // on screen from the start — or the closing one, for a run restored already delivered.
+  if (!scene) return CAPTIONS[claim.state === 'delivered' ? 'done' : 'setup'];
+  return CAPTIONS[PHASE_OF[scene]];
+}
+
+/**
+ * Matches `.claimCaption`'s transition: the old line fades out before the new one fades in. The
+ * line the caption mounts with is shown at once — only changes fade.
+ */
+const FADE_MS = 400;
+
+function FadeCaption({ text }: { text: string | undefined }) {
+  const [shown, setShown] = useState(text);
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    if (text === shown) {
+      setVisible(true);
+      return;
+    }
+    setVisible(false);
+    const timer = setTimeout(() => {
+      setShown(text);
+      setVisible(true);
+    }, FADE_MS);
+    return () => clearTimeout(timer);
+  }, [text, shown]);
+
+  return (
+    <p
+      className={`${styles.claimCaption} ${visible && shown ? styles.claimCaptionOn : ''}`}
+      aria-live="polite"
+    >
+      {shown}
+    </p>
+  );
+}
+
 /** The cumulative checklist. Reached steps stay visible with a tick; the current one is highlighted. */
 function Steps({ claim }: { claim: Claim }) {
   const { furthest, current, terminal } = progress(claim);
@@ -320,16 +391,17 @@ function CopyButton({
 }
 
 /**
- * The devcon8 payoff: the purchased voucher IS a wallet. The private key is rendered as text and
- * as a QR (the existing dark-on-light QrCode — inverted codes fail on plenty of scanners), with a
- * save-it-now warning: the key is stored nowhere server-side, so this browser is the only copy. It
- * is kept in localStorage until the visitor copies it — see `deliveredStore`.
+ * The devcon8 payoff: the purchased voucher IS a wallet. Address and private key are shown the
+ * way the Dashboard shows every address — abbreviated, with a copy button — the address with a
+ * Gnosis explorer link (the wallet is on Gnosis, not the dashboard's chain), the key without one,
+ * and kept out of a hover tooltip. The key is also a QR code (the existing dark-on-light QrCode —
+ * inverted codes fail on plenty of scanners), with a save-it-now warning: the key is stored nowhere
+ * server-side, so this browser is the only copy. It is kept in localStorage until the visitor
+ * copies it — see `deliveredStore`.
  *
- * A copy counts whether it comes from the button or from selecting the key and copying it with
- * the keyboard or the context menu. The latter is caught at the document, because a `copy` event
- * is dispatched where the selection starts, not necessarily on the `<pre>`. Only a selection that
- * contains the whole key counts: a partial copy has not saved anything. Scanning the QR code
- * cannot be detected, so that path relies on the two-week expiry.
+ * A copy is the copy button's successful clipboard write. The key is never on screen in full, so
+ * there is no selection to catch. Scanning the QR code cannot be detected, so that path relies on
+ * the two-week expiry.
  */
 function VoucherItem({
   voucher,
@@ -340,52 +412,60 @@ function VoucherItem({
   copied: boolean;
   onCopied: () => void;
 }) {
-  const privateKey = voucher.privateKey;
-
-  useEffect(() => {
-    if (!privateKey || copied) return;
-    const onCopy = () => {
-      const selected = document.getSelection()?.toString().replace(/\s+/g, '') ?? '';
-      if (selected.includes(privateKey)) onCopied();
-    };
-    document.addEventListener('copy', onCopy);
-    return () => document.removeEventListener('copy', onCopy);
-  }, [privateKey, copied, onCopied]);
-
+  // The key's QR code on the left, everything about the wallet beside it — stacked on a phone.
   return (
-    <div className={styles.claimItem}>
-      <div className={styles.claimItemHead}>
-        <span className={styles.claimFactLabel}>Your wallet</span>
-        <span className={styles.claimItemName}>
-          {voucher.funded ? 'Funded with xBZZ + xDAI on Gnosis' : 'Created — funding pending'}
-        </span>
-      </div>
+    <div className={`${styles.claimItem} ${styles.claimWallet}`}>
+      {voucher.privateKey && (
+        <div className={styles.claimWalletQr}>
+          <QrCode value={voucher.privateKey} size={152} />
+        </div>
+      )}
 
-      <pre className={styles.claimItemBody}>{voucher.address}</pre>
+      <div className={styles.claimWalletInfo}>
+        <div className={styles.claimItemHead}>
+          <span className={styles.claimFactLabel}>Your wallet</span>
+          <span className={styles.claimItemName}>
+            {voucher.funded ? 'Funded with xBZZ + xDAI on Gnosis' : 'Created — funding pending'}
+          </span>
+        </div>
 
-      {voucher.privateKey ? (
-        <>
-          <QrCode value={voucher.privateKey} size={200} />
-          <pre className={styles.claimItemBody}>{voucher.privateKey}</pre>
-          <CopyButton value={voucher.privateKey} label="Copy private key" onCopied={onCopied} />
+        <div className={styles.claimWalletRows}>
+          <div className={styles.claimFact}>
+            <span className={styles.claimFactLabel}>Address</span>
+            <AddressLink address={voucher.address} chain={gnosis} />
+          </div>
+          {voucher.privateKey && (
+            <div className={styles.claimFact}>
+              <span className={styles.claimFactLabel}>Private key</span>
+              <AddressLink
+                address={voucher.privateKey}
+                secret
+                noun="private key"
+                onCopied={onCopied}
+              />
+            </div>
+          )}
+        </div>
+
+        {voucher.privateKey ? (
           <p className={styles.claimHint}>
             {copied
               ? 'Copied, and removed from this browser. Paste it somewhere safe — it disappears when you close this page.'
-              : 'Save this key — nobody else has a copy. It stays in this browser until you copy it, for at most 2 weeks.'}
+              : 'Save this key — nobody else has a copy. It stays in this browser until you copy it.'}
           </p>
-        </>
-      ) : (
-        <p className={styles.claimHint}>
-          {voucher.note ?? 'The private key was already delivered and is not stored anywhere.'}
-        </p>
-      )}
+        ) : (
+          <p className={styles.claimHint}>
+            {voucher.note ?? 'The private key was already delivered and is not stored anywhere.'}
+          </p>
+        )}
 
-      {!voucher.funded && (
-        <p className={styles.claimHint}>
-          {voucher.error ??
-            'Funding did not complete. Keep the key — the wallet address can still be topped up.'}
-        </p>
-      )}
+        {!voucher.funded && (
+          <p className={styles.claimHint}>
+            {voucher.error ??
+              'Funding did not complete. Keep the key — the wallet address can still be topped up.'}
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -434,12 +514,16 @@ function DeliveredItem({
   );
 }
 
-/** The title row. */
-function Head() {
+/** The title row, with the share toggle and, when open, the share QR code under it. */
+function Head({ share, onToggleShare }: { share: boolean; onToggleShare: () => void }) {
   return (
-    <div className={styles.sectionHead}>
-      <h2 className={styles.sectionTitle}>Claim wallet</h2>
-    </div>
+    <>
+      <div className={`${styles.sectionHead} ${styles.claimHead}`}>
+        <h2 className={styles.sectionTitle}>Devcon8 · claim a wallet</h2>
+        <ShareQrToggle open={share} onToggle={onToggleShare} />
+      </div>
+      {share && <ShareQr />}
+    </>
   );
 }
 
@@ -457,6 +541,23 @@ export default function ClaimWalletPage() {
     retry,
   } = useClaim();
 
+  // Held here rather than in `Head`, which each state below renders afresh: pressing Start must not
+  // close a code someone is in the middle of scanning.
+  const [share, setShare] = useState(false);
+  const toggleShare = useCallback(() => setShare((open) => !open), []);
+  const head = <Head share={share} onToggleShare={toggleShare} />;
+
+  const [scene, setScene] = useState<AnimScene>();
+
+  // The nav goes away only while an agent is running — see `useNavLock`.
+  const finished =
+    !!claim &&
+    (claim.state === 'delivered' ||
+      claim.state === 'expired' ||
+      claim.state === 'failed' ||
+      claim.released);
+  useNavLock(configured && started && !finished && !(error && !claim));
+
   const counting = Boolean(claim && !claim.released && claim.state !== 'delivered');
   const remaining = useCountdown(claim?.expiresAt, counting);
 
@@ -473,7 +574,7 @@ export default function ClaimWalletPage() {
   if (!configured) {
     return (
       <section className={styles.section}>
-        <Head />
+        {head}
         <div className={styles.empty}>
           No agent orchestration API configured. Set <code>VITE_DEVCON_API_URL</code> to the address
           of <code>agent-orchestration-api</code> and reload.
@@ -486,13 +587,13 @@ export default function ClaimWalletPage() {
   if (!started) {
     return (
       <section className={styles.section}>
-        <Head />
+        {head}
         <div className={styles.claimCard}>
-          <p className={styles.claimLead}>Get a buyer agent of your own.</p>
-          <p className={styles.claimHint}>
-            Press Start and an AI agent is created just for you, with a little test USDC to spend.
-            It finds a seller agent on-chain, pays it over x402, and hands you what it bought: a
-            Swarm wallet funded with xBZZ and xDAI.
+          <p className={styles.claimIntro}>Get your own AI agent.</p>
+          <p className={styles.claimIntroBody}>
+            Press Start and an agent is created just for you, with a little test USDC to spend. It
+            finds a seller agent, pays it over x402 and buys you a funded Swarm wallet — live,
+            on-chain, in about a minute.
           </p>
           {/* Two chains appear in the steps that follow; said once here so neither reads as a
               mistake. */}
@@ -519,7 +620,7 @@ export default function ClaimWalletPage() {
     const capacity = errorCode === 'at_capacity';
     return (
       <section className={styles.section}>
-        <Head />
+        {head}
         <div className={`${styles.banner} ${capacity ? styles.bannerWarn : styles.bannerDanger}`}>
           {error}
         </div>
@@ -539,7 +640,7 @@ export default function ClaimWalletPage() {
   if (loading || !claim) {
     return (
       <section className={styles.section}>
-        <Head />
+        {head}
         <div className={styles.claimCard}>
           <p className={styles.claimLead}>Creating a buyer agent for you…</p>
         </div>
@@ -553,7 +654,7 @@ export default function ClaimWalletPage() {
 
   return (
     <section className={styles.section}>
-      <Head />
+      {head}
 
       {/* A failed poll while the agent is still running: worth showing, not worth erasing the page. */}
       {error && !broke && <div className={`${styles.banner} ${styles.bannerWarn}`}>{error}</div>}
@@ -577,20 +678,30 @@ export default function ClaimWalletPage() {
                 animation moves above (see .claimTop). */}
             <div className={styles.claimTop}>
               <div className={styles.claimTopMain}>
-                <p className={styles.claimLead}>
-                  {delivered ? 'Your agent bought this for you.' : 'Your buyer agent is working.'}
-                </p>
+                {/* Once delivered, the captions have told the story: the "bought this for you"
+                    line moves down to introduce the item itself. */}
+                {!delivered && <p className={styles.claimLead}>Your buyer agent is working.</p>}
 
                 <Steps claim={claim} />
               </div>
 
-              <BuyerAgentAnim
-                step={animStep(claim)}
-                settled={settled}
-                className={styles.claimAnim}
-              />
+              {/* The animation sits high in its column so the caption has room under it. */}
+              <div className={styles.claimStage}>
+                <BuyerAgentAnim
+                  step={animStep(claim)}
+                  settled={settled}
+                  className={styles.claimAnim}
+                  onScene={setScene}
+                />
+                <FadeCaption text={captionFor(scene, claim)} />
+              </div>
             </div>
 
+            {claim.item && delivered && (
+              <p className={`${styles.claimLead} ${styles.claimItemLead}`}>
+                Your agent bought this for you.
+              </p>
+            )}
             {claim.item && (
               <DeliveredItem item={claim.item} keyCopied={keyCopied} onKeyCopied={markKeyCopied} />
             )}
@@ -619,8 +730,7 @@ export default function ClaimWalletPage() {
               </p>
             )}
 
-            {/* The nav is hidden on this page (leaving mid-run would cost the visitor their
-                agent), so once the purchase is done this is the way to the dashboard, where the
+            {/* The nav is back once the purchase is done, but this says where to look: the
                 purchase just made shows up on the projected map. */}
             {delivered && (
               <p className={styles.claimHint}>
