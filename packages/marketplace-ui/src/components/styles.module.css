@@ -809,11 +809,37 @@
 }
 
 @media (max-width: 720px) {
+  /* Two lines per row on a phone: kind, amount, time and tx on top, then who paid whom across
+     the full width. Squeezed into one line, the seller was pushed out of the row and the
+     buyer's address ran under the tx link. */
   .historyRow {
-    grid-template-columns: 70px 100px minmax(0, 1fr) 28px;
+    /* when is fixed, not auto: an auto track would grow to fit the unwrapped second line. */
+    grid-template-columns: 70px minmax(0, 1fr) 64px 28px;
+    grid-template-areas:
+      'kind amount when tx'
+      'parties parties parties parties';
+    row-gap: 0.45rem;
+  }
+  .historyKind {
+    grid-area: kind;
+  }
+  .historyAmount {
+    grid-area: amount;
   }
   .historyWhen {
-    display: none;
+    grid-area: when;
+  }
+  .historyTx {
+    grid-area: tx;
+  }
+  /* The second line never wraps: the seller's name gives way with an ellipsis, so the buyer's
+     address and the split figures stay whole. */
+  .historyParties {
+    grid-area: parties;
+  }
+  .historySplit {
+    min-width: 0;
+    white-space: nowrap;
   }
   /* Once a card's action wraps under its address it sits on its own line; right-aligning it
      inside a column sized by the wider note below left the button floating mid-card. */
