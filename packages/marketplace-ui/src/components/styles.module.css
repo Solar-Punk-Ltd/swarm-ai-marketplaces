@@ -1459,6 +1459,36 @@
   background: var(--mp-accent-soft);
 }
 
+/* "Try Swarm with it": the wallet's next step, quieter than the wallet card above it. */
+.claimNext {
+  margin: -0.25rem 0 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--mp-border);
+  border-radius: 3px;
+  background: var(--mp-surface);
+}
+
+.claimNextTitle {
+  margin: 0 0 0.25rem;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mp-text);
+}
+
+.claimNextSteps {
+  margin: 0.6rem 0 0;
+  padding-left: 1.2rem;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--mp-text);
+}
+
+.claimNextSteps a,
+.claimNext strong {
+  color: var(--mp-accent);
+  font-weight: 600;
+}
+
 /* "Your agent bought this for you." — the item's own heading, under the steps. */
 .claimItemLead {
   margin: 1.1rem 0 0.5rem;

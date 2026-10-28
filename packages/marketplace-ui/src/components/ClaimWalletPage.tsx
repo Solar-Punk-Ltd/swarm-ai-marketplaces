@@ -414,58 +414,98 @@ function VoucherItem({
 }) {
   // The key's QR code on the left, everything about the wallet beside it — stacked on a phone.
   return (
-    <div className={`${styles.claimItem} ${styles.claimWallet}`}>
-      {voucher.privateKey && (
-        <div className={styles.claimWalletQr}>
-          <QrCode value={voucher.privateKey} size={152} />
-        </div>
-      )}
-
-      <div className={styles.claimWalletInfo}>
-        <div className={styles.claimItemHead}>
-          <span className={styles.claimFactLabel}>Your wallet</span>
-          <span className={styles.claimItemName}>
-            {voucher.funded ? 'Funded with xBZZ + xDAI on Gnosis' : 'Created — funding pending'}
-          </span>
-        </div>
-
-        <div className={styles.claimWalletRows}>
-          <div className={styles.claimFact}>
-            <span className={styles.claimFactLabel}>Address</span>
-            <AddressLink address={voucher.address} chain={gnosis} />
+    <>
+      <div className={`${styles.claimItem} ${styles.claimWallet}`}>
+        {voucher.privateKey && (
+          <div className={styles.claimWalletQr}>
+            <QrCode value={voucher.privateKey} size={152} />
           </div>
-          {voucher.privateKey && (
+        )}
+
+        <div className={styles.claimWalletInfo}>
+          <div className={styles.claimItemHead}>
+            <span className={styles.claimFactLabel}>Your wallet</span>
+            <span className={styles.claimItemName}>
+              {voucher.funded ? 'Funded with xBZZ + xDAI on Gnosis' : 'Created — funding pending'}
+            </span>
+          </div>
+
+          <div className={styles.claimWalletRows}>
             <div className={styles.claimFact}>
-              <span className={styles.claimFactLabel}>Private key</span>
-              <AddressLink
-                address={voucher.privateKey}
-                secret
-                noun="private key"
-                onCopied={onCopied}
-              />
+              <span className={styles.claimFactLabel}>Address</span>
+              <AddressLink address={voucher.address} chain={gnosis} />
             </div>
+            {voucher.privateKey && (
+              <div className={styles.claimFact}>
+                <span className={styles.claimFactLabel}>Private key</span>
+                <AddressLink
+                  address={voucher.privateKey}
+                  secret
+                  noun="private key"
+                  onCopied={onCopied}
+                />
+              </div>
+            )}
+          </div>
+
+          {voucher.privateKey ? (
+            <p className={styles.claimHint}>
+              {copied
+                ? 'Copied, and removed from this browser. Paste it somewhere safe — it disappears when you close this page.'
+                : 'Save this key — nobody else has a copy. It stays in this browser until you copy it.'}
+            </p>
+          ) : (
+            <p className={styles.claimHint}>
+              {voucher.note ?? 'The private key was already delivered and is not stored anywhere.'}
+            </p>
+          )}
+
+          {!voucher.funded && (
+            <p className={styles.claimHint}>
+              {voucher.error ??
+                'Funding did not complete. Keep the key — the wallet address can still be topped up.'}
+            </p>
           )}
         </div>
-
-        {voucher.privateKey ? (
-          <p className={styles.claimHint}>
-            {copied
-              ? 'Copied, and removed from this browser. Paste it somewhere safe — it disappears when you close this page.'
-              : 'Save this key — nobody else has a copy. It stays in this browser until you copy it.'}
-          </p>
-        ) : (
-          <p className={styles.claimHint}>
-            {voucher.note ?? 'The private key was already delivered and is not stored anywhere.'}
-          </p>
-        )}
-
-        {!voucher.funded && (
-          <p className={styles.claimHint}>
-            {voucher.error ??
-              'Funding did not complete. Keep the key — the wallet address can still be topped up.'}
-          </p>
-        )}
       </div>
+      {voucher.privateKey && <UseOnSwarm />}
+    </>
+  );
+}
+
+/** The Swarm website's page for getting a node: Swarm Desktop, Nook and the rest. */
+const SWARM_ACCESS_URL = 'https://www.ethswarm.org/access/';
+
+/**
+ * What the wallet is for. The point of the demo is that visitors try Swarm, and the shortest way
+ * there is to redeem the key as a gift code in a node app: Swarm Desktop and Nook both take a gift
+ * wallet's private key and move its xBZZ and xDAI onto the node's own wallet, ready for postage
+ * stamps and uploads. Without this the key is a string with no next step.
+ */
+function UseOnSwarm() {
+  return (
+    <div className={styles.claimNext}>
+      <p className={styles.claimNextTitle}>Try Swarm with it</p>
+      <p className={styles.claimHint}>
+        Your private key works as a <strong>gift code</strong>: redeem it in a Swarm node app, and
+        its xBZZ and xDAI move to your node — enough to buy storage and upload your first files.
+      </p>
+      <ol className={styles.claimNextSteps}>
+        <li>
+          Get{' '}
+          <a href={SWARM_ACCESS_URL} target="_blank" rel="noopener noreferrer">
+            Swarm Desktop or Nook
+          </a>{' '}
+          and start your node.
+        </li>
+        {/* The two apps put it in different places: a sidebar link in Swarm Desktop (also under
+            Account → Top up wallet), a card on the Account page in Nook. */}
+        <li>
+          Find <strong>Redeem gift code</strong>: in the sidebar in Swarm Desktop, or on the Account
+          page in Nook.
+        </li>
+        <li>Paste your private key (copy it above) and confirm.</li>
+      </ol>
     </div>
   );
 }

@@ -591,6 +591,13 @@ abbreviated with a copy button, like every address on the Dashboard: the address
 `secret`, so it gets no explorer link and no full-value hover tooltip. The key's QR code stays
 under them.
 
+**The wallet has a next step.** Under the card, "Try Swarm with it" (`UseOnSwarm`) says what the
+wallet is for: the private key works as a **gift code** in Swarm Desktop and Nook ("Redeem gift
+code": a sidebar link in Swarm Desktop, a card on the Account page in Nook), which moves its xBZZ and xDAI onto the visitor's own node, ready for postage
+stamps and uploads. It links to the Swarm website's Access page
+(`https://www.ethswarm.org/access/`) rather than to either app, so it does not go stale when the
+apps' own download pages move. Shown only while the key is on screen.
+
 It keeps rendering after the agent is released. The API captures the content onto the claim record
 before tearing the container down, precisely so the item outlives the agent; the visitor paid for
 it. Withheld, binary and truncated are each stated in words rather than rendered as an empty box.
