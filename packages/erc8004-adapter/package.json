@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "jest --passWithNoTests",
+    "test": "jest",
     "test:sepolia": "tsx src/scripts/test-sepolia.ts",
     "create-agent": "tsx tools/create-agent/index.ts",
     "discover-agents": "tsx tools/discover-agents/index.ts",

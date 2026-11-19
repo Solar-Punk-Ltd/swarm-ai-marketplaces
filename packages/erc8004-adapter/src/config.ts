@@ -6,7 +6,7 @@ export interface ChainConfig {
   rpcUrl: string;
   /** ERC-8004 chain identifier passed to createERC8004Client */
   chain: string;
-  /** Provider wallet private key — used to register agents and sign FeedbackAuth */
+  /** Wallet private key — used to register agents and send registry transactions */
   privateKey?: string;
 }
 

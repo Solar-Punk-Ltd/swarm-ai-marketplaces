@@ -55,19 +55,21 @@ export interface RegisterResult {
 
 export interface PostFeedbackParams {
   agentId: bigint;
-  score: number; // 0–100
-  tags?: [string?, string?];
-  evidenceURI?: string; // bzz://<hash> or https://...
-  feedbackAuth?: FeedbackAuth;
+  // Fixed-point score: `value / 10^valueDecimals`. The registry fixes no range — the marketplace
+  // configures one, so it is not clamped here.
+  value: bigint;
+  valueDecimals: number; // 0–18 (registry limit)
+  tag1?: string;
+  tag2?: string;
   endpoint?: string;
+  feedbackURI: string; // e.g. swarm-feed://<owner>/<topic>/<index>
+  feedbackHash: string; // keccak256 of the content feedbackURI resolves to — never of the URI itself
 }
 
-// Off-chain authorization: provider signs this so only authorised consumers can post feedback.
-export interface FeedbackAuth {
-  agentId: bigint;
-  consumer: string; // consumer wallet address
-  deadline: number; // unix timestamp
-  signature: string; // EIP-712 sig from the provider wallet
+export interface PostFeedbackResult {
+  txHash: string;
+  feedbackIndex: bigint; // from the NewFeedback event
+  blockNumber: number;
 }
 
 // Off-chain authorization: new wallet signs this to consent to being registered as the agent wallet.
@@ -81,24 +83,71 @@ export interface WalletAuth {
 export interface FeedbackResult {
   value: bigint;
   valueDecimals: number;
-  score: number; // normalized 0–100
+  score: number; // value / 10^valueDecimals, on whatever scale the marketplace uses
   tag1: string;
   tag2: string;
   isRevoked: boolean;
 }
 
+export interface FeedbackEntry extends FeedbackResult {
+  clientAddress: string;
+  feedbackIndex: bigint;
+}
+
 export interface ReputationSummary {
   count: bigint;
-  averageScore: number; // normalized 0–100
-  rawValue: bigint;
+  averageScore: number; // the registry's average, as a decimal number
+  rawValue: bigint; // the registry's average, fixed-point
   rawDecimals: number;
 }
 
 export interface ReputationScore {
   agentId: bigint;
-  score: number; // 0–100 aggregated
+  score: number; // average on the marketplace's scale
   feedbackCount: bigint;
-  reliable: boolean; // score >= 70 and count >= 3
+  reliable: boolean; // score >= minScore and count >= minCount
+}
+
+// Paging for event scans. `fromBlock` is required: an open-ended default would silently return a
+// partial view.
+export interface LogQueryOptions {
+  fromBlock: number;
+  toBlock?: number; // default: latest
+  chunkSize?: number; // default: DEFAULT_LOG_RANGE_MAX
+}
+
+interface FeedbackLogMeta {
+  blockNumber: number;
+  logIndex: number;
+  transactionHash: string;
+}
+
+export interface NewFeedbackEvent extends FeedbackLogMeta {
+  agentId: bigint;
+  clientAddress: string;
+  feedbackIndex: bigint;
+  value: bigint;
+  valueDecimals: number;
+  tag1: string;
+  tag2: string;
+  endpoint: string;
+  feedbackURI: string;
+  feedbackHash: string;
+}
+
+export interface FeedbackRevokedEvent extends FeedbackLogMeta {
+  agentId: bigint;
+  clientAddress: string;
+  feedbackIndex: bigint;
+}
+
+export interface ResponseAppendedEvent extends FeedbackLogMeta {
+  agentId: bigint;
+  clientAddress: string;
+  feedbackIndex: bigint;
+  responder: string;
+  responseURI: string;
+  responseHash: string;
 }
 
 export interface SwarmUploadResult {
