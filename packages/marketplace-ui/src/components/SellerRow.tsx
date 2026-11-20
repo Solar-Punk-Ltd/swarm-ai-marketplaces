@@ -13,6 +13,8 @@ import DistributeButton from './DistributeButton';
 import HistoryTable from './HistoryTable';
 import AgentFace from './AgentFace';
 import RoleTip from './RoleTip';
+import ReputationBadge from './ReputationBadge';
+import { formatScore } from '../lib/reputation';
 import styles from './styles.module.css';
 
 /**
@@ -22,7 +24,7 @@ import styles from './styles.module.css';
  * "Details", laid out as the decks' ledger: dotted key/value rows.
  */
 export default function SellerRow({ record }: { record: SellerRecord }) {
-  const { balances, history, agentLinks } = useMarketplace();
+  const { balances, history, agentLinks, reputations } = useMarketplace();
   const [open, setOpen] = useState(false);
 
   // Filtered from the single global sweep — a row must never fetch its own logs.
@@ -36,6 +38,9 @@ export default function SellerRow({ record }: { record: SellerRecord }) {
   const funded = isFunded(pendingMap);
   const link = agentLinks.bySplitter.get(record.splitter.toLowerCase());
   const linked = link !== undefined;
+  const repEntry =
+    link?.status === 'verified' ? reputations.get(link.agentId.toString()) : undefined;
+  const reputation = repEntry?.state === 'ok' ? repEntry.reputation : undefined;
 
   // ERC-20 only. RevenueSplitter has no receive(), so a clone's ETH balance is structurally zero
   // and rendering it here would read as a bug.
@@ -51,6 +56,7 @@ export default function SellerRow({ record }: { record: SellerRecord }) {
             <AgentFace link={link} size={40} muted={!linked} />
           </RoleTip>
           <AgentBadge splitter={record.splitter} seller={record.seller} />
+          <ReputationBadge link={link} />
           <CatalogLink splitter={record.splitter} />
           {/* With no agent to name it, the seller's address is the only identity the row has. */}
           {!linked && <AddressLink address={record.seller} label="Seller" />}
@@ -141,6 +147,49 @@ export default function SellerRow({ record }: { record: SellerRecord }) {
                 </div>
               );
             })}
+            {reputation && (
+              <>
+                <div className={styles.ledgerRow}>
+                  <dt title="Average of the reviews that count: anchored on-chain, backed by a valid Proof-of-Purchase, one per purchase.">
+                    Reputation
+                  </dt>
+                  <dd>
+                    {reputation.score === null
+                      ? '—'
+                      : `${formatScore(reputation.score, reputation.scale)} of ${reputation.scale.min}–${reputation.scale.max}`}
+                  </dd>
+                </div>
+                <div className={styles.ledgerRow}>
+                  <dt title="Reviews anchored on-chain and not revoked, how many of them count, and how many are still being verified.">
+                    Reviews
+                  </dt>
+                  <dd>
+                    {reputation.popValidCount} counted of {reputation.count} anchored
+                    {reputation.pendingCount > 0 ? ` · ${reputation.pendingCount} verifying` : ''}
+                  </dd>
+                </div>
+                {reputation.recency && (
+                  <div className={styles.ledgerRow}>
+                    <dt>Last review</dt>
+                    <dd>{new Date(reputation.recency).toLocaleString()}</dd>
+                  </div>
+                )}
+                {reputation.responseCount > 0 && (
+                  <div className={styles.ledgerRow}>
+                    <dt title="Replies the seller appended to reviews (ERC-8004 appendResponse).">
+                      Seller responses
+                    </dt>
+                    <dd>{reputation.responseCount}</dd>
+                  </div>
+                )}
+                <div className={styles.ledgerRow}>
+                  <dt title="The reputation indexer is a cache; buyer agents verify it against the chain before paying.">
+                    Indexed through block
+                  </dt>
+                  <dd>{reputation.checkpoint.block.toLocaleString()}</dd>
+                </div>
+              </>
+            )}
           </dl>
 
           <HistoryTable

@@ -7,11 +7,13 @@ import {
   type AgentCard,
 } from '@solarpunk/erc8004-adapter';
 import { AGENT_DISPLAY_LIMIT, RPC_URL } from '../constants';
+import { fetchReputation, type ReputationState } from '../reputation';
 
 export interface Agent {
   agentId: string;
   uri: string;
   card: AgentCard | null;
+  reputation?: ReputationState;
 }
 
 export interface AgentsContextValue {
@@ -64,6 +66,14 @@ export function AgentsProvider({ children }: { children: ReactNode }) {
         setRefreshing(false);
 
         for (const { agentId, uri } of initial) {
+          // Display only, best-effort, independent of the card fetch.
+          fetchReputation(agentId).then((reputation) => {
+            if (!cancelled && reputation !== undefined) {
+              setAgents((prev) =>
+                prev.map((a) => (a.agentId === agentId ? { ...a, reputation } : a)),
+              );
+            }
+          });
           downloadAgentCard(uri)
             .then((card) => {
               if (!cancelled) {

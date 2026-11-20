@@ -83,6 +83,15 @@ export function serializeAgentCard(card: AgentCard): string {
 
 Do not fix this at the call site in `create-agent/index.ts` — the replacer belongs here so all callers are covered consistently.
 
+## Reputation and reviews
+
+The reputation layer is specified in the repo-root `CLAUDE.md` ("Settled design decisions", "Review tools spec"). Read it before changing `modules/reputation.ts` or `modules/reviews/`.
+
+- `ReputationModule` takes the content hash as `feedbackHash` and never hashes the URI. `FeedbackAuth` is gone: the live registry has no such parameter.
+- The registry's `getSummary` already returns the **average** (reference implementation divides by count), and empty tag filters mean "no filter".
+- `modules/reviews/` holds the shared logic for the buyer MCP tools and `marketplace-service`: review file, feed writing, `verifyPoP`, `verifyReview`, `findAnchoredPurchase`, envelope-request signatures. Keep chain access behind `PoPChainReader` so the rules stay unit-testable.
+- Tests: `pnpm --filter @solarpunk/erc8004-adapter test` (Jest, `test/`).
+
 ## Everything else
 
-Do not change the Identity, Reputation, or AgentCard modules without a specific reason. They are complete and tested.
+Do not change the Identity or AgentCard modules without a specific reason.

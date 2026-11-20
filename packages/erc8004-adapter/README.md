@@ -13,15 +13,16 @@ This SDK is designed for autonomous agents and agent-aware services (MCPs, x402 
 ERC-8004 defines on-chain registries for agent identity, reputation, and (optionally) third-party validation. This adapter covers the **Identity Registry** and **Reputation Registry** — the two components required for a working data exchange loop. The Validation Registry is optional under the spec and is not included here.
 
 - **Identity Registry** — each agent is minted as a unique NFT. The NFT's URI points to an "Agent Card" stored on Swarm (`bzz://<hash>`), keeping metadata off-chain for gas efficiency.
-- **Reputation Registry** — consumers post scored feedback (0–100) after data exchanges. Providers authorize feedback with an EIP-712 signature to prevent spoofing.
+- **Reputation Registry** — buyers post scored feedback after data exchanges, pointing at a review file on their own Swarm feed. The registry is permissionless (only the agent's own owner/operators are rejected); Sybil resistance comes from Proof-of-Purchase, checked by the reviews module.
 
-This adapter wraps both registries into three modules:
+This adapter wraps both registries into three modules, plus the reviews module:
 
-| Module       | Class              | Purpose                                                    |
-| ------------ | ------------------ | ---------------------------------------------------------- |
-| `identity`   | `IdentityModule`   | Register agents, manage URIs, wallets, and metadata        |
-| `reputation` | `ReputationModule` | Post and read feedback, sign/verify `FeedbackAuth` tokens  |
-| `aggregate`  | `AggregateModule`  | Calculate a normalized reputation score from on-chain data |
+| Module       | Class / exports    | Purpose                                                                                          |
+| ------------ | ------------------ | ------------------------------------------------------------------------------------------------ |
+| `identity`   | `IdentityModule`   | Register agents, manage URIs, wallets, and metadata                                              |
+| `reputation` | `ReputationModule` | Post, revoke, respond to and read feedback; paged event queries                                  |
+| `aggregate`  | `AggregateModule`  | Average score over a given (PoP-valid) client set                                                |
+| reviews      | functions          | Review files, feed writing with envelopes, Proof-of-Purchase and review verification (see below) |
 
 A helper module (`agent-card`) handles generating, serializing, and parsing Agent Card JSON. These helpers are **pure TypeScript** — they do not interact with the blockchain.
 
@@ -148,43 +149,64 @@ Once you have a URI, read the agent's on-chain data directly:
 const uri = await erc8004.identity.getAgentURI(agentId); // "bzz://<hash>"
 const owner = await erc8004.identity.getOwner(agentId);
 
-// Check reputation before paying
-const rep = await erc8004.aggregate.calculateReputation(agentId);
-console.log(`Score: ${rep.score}/100 | Reviews: ${rep.feedbackCount} | Reliable: ${rep.reliable}`);
-// reliable === true when score >= 70 and feedbackCount >= 3
+// Check reputation before paying — over the PoP-valid client set, never all clients
+const rep = await erc8004.aggregate.calculateReputation(agentId, popValidClients, {
+  minScore: 70, // on your marketplace's score scale
+  minCount: 3n,
+});
+console.log(`Score: ${rep.score} | Reviews: ${rep.feedbackCount} | Reliable: ${rep.reliable}`);
 ```
 
-### 4. Post feedback after a data exchange
+### 4. Post a review after a data exchange
 
-The provider must first sign a `FeedbackAuth` token authorizing the specific consumer to post a review. This prevents arbitrary or spoofed ratings.
-
-**Provider side** (after confirming payment):
+The buyer writes the review to its own Swarm feed and anchors it with `giveFeedback` from the same key. The full flow (envelopes from the marketplace, Proof-of-Purchase) is specified in the repo-root `CLAUDE.md`; the adapter supplies the pieces:
 
 ```typescript
-const feedbackAuth = await erc8004.reputation.signFeedbackAuth(
+import {
+  buildReview,
+  serializeReview,
+  reviewHash,
+  reviewFeedTopic,
+  nextFeedIndex,
+  prepareReviewUpload,
+  uploadReviewChunks,
+  encodeFeedbackURI,
+} from '@solarpunk/erc8004-adapter';
+
+const review = buildReview({
+  chainId: 84532n,
+  identityRegistry,
   agentId,
-  consumerAddress,
-  3600, // token valid for 1 hour (default)
-);
-// Send feedbackAuth to the consumer (e.g. in the x402 response payload)
-```
+  clientAddress: buyer.address,
+  value: 92n,
+  valueDecimals: 0,
+  comment: 'Dataset matched its description',
+  proofOfPayment, // { fromAddress, toAddress: splitter, chainId, txHash, purchaseIntent }
+});
+const bytes = serializeReview(review);
+const topic = reviewFeedTopic(agentId);
+const index = await nextFeedIndex(bee, buyer.address, topic);
+const prepared = await prepareReviewUpload({
+  bee,
+  reviewBytes: bytes,
+  signerPrivateKey: buyer.privateKey,
+  topic,
+  index,
+});
 
-**Consumer side** (after verifying the downloaded data):
+// prepared.chunkAddresses → request envelopes from the marketplace (or use your own batch)
+await uploadReviewChunks(bee, prepared, (address) => envelopes[address]);
 
-```typescript
-// Upload a detailed review JSON to Swarm for the evidenceURI
-const evidenceHash = '<swarm-hash-of-review-json>';
-
-const txHash = await erc8004.reputation.postFeedback({
+const { feedbackIndex } = await erc8004.reputation.postFeedback({
   agentId,
-  score: 92, // 0–100
-  tags: ['image-data', 'reliable'], // up to 2 tags
-  evidenceURI: `bzz://${evidenceHash}`, // anchored on-chain as keccak256 hash
-  feedbackAuth, // EIP-712 token from the provider
+  value: 92n,
+  valueDecimals: 0,
+  feedbackURI: encodeFeedbackURI({ owner: buyer.address, topic, index }),
+  feedbackHash: reviewHash(bytes), // hash of the review content, never of the URI
 });
 ```
 
-Future consumers can call `calculateReputation(agentId)` before purchasing to evaluate the provider's track record.
+Readers check a review with `verifyReview` (feed signature, hash, fields vs the chain) and `verifyPoP` (the purchase was a genuine, taxed sale through this marketplace's splitter).
 
 **What's next?**
 
@@ -510,7 +532,7 @@ pnpm --filter @solarpunk/erc8004-adapter get-agent --agentId 5102
 
 > For an overview of how these modules layer on top of the on-chain contracts, see the [Architecture diagram](#architecture) above.
 
-**Type conventions:** All agent IDs are `bigint` (matching Solidity `uint256`). All normalized scores are `number` in the 0–100 range.
+**Type conventions:** All agent IDs are `bigint` (matching Solidity `uint256`). Scores are fixed-point (`value`, `valueDecimals`) on the marketplace's own scale; `score` fields are the decimal form.
 
 ### `createERC8004Client(config)`
 
@@ -534,54 +556,50 @@ Only `base-sepolia` has pre-configured contract addresses. For other chains, pas
 
 ### IdentityModule (`erc8004.identity`)
 
-| Method                   | Signature                                                                        | Description                                                                                                                                                                                                                             |
-| ------------------------ | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `register`               | `(agentURI: string, metadata?: MetadataEntry[]) → RegisterResult`                | Mints a new agent NFT with optional on-chain metadata. Returns `{ agentId, txHash }`.                                                                                                                                                   |
-| `getAgentURI`            | `(agentId: bigint) → string`                                                     | Reads the stored `bzz://` URI from the NFT.                                                                                                                                                                                             |
-| `setAgentURI`            | `(agentId, newURI) → txHash`                                                     | Updates the URI. Owner/operator only.                                                                                                                                                                                                   |
-| `getOwner`               | `(agentId: bigint) → address`                                                    | Returns current NFT owner.                                                                                                                                                                                                              |
-| `setAgentWallet`         | `(agentId, wallet, deadline, sig) → txHash`                                      | Attaches a hot wallet for payments, keeping the agent NFT owner separate. Requires EIP-712 proof.                                                                                                                                       |
-| `getAgentWallet`         | `(agentId: bigint) → address`                                                    | Returns the associated wallet, or zero address.                                                                                                                                                                                         |
-| `setMetadata`            | `(agentId, key, value: Uint8Array) → txHash`                                     | Stores arbitrary key/value bytes on-chain.                                                                                                                                                                                              |
-| `getMetadata`            | `(agentId, key) → Uint8Array`                                                    | Reads stored metadata bytes.                                                                                                                                                                                                            |
-| `getRegisteredAgents`    | `(fromBlock?, toBlock?) → { agentId, agentURI, owner }[]`                        | Returns all agents registered in the given block range by scanning `Registered` events.                                                                                                                                                 |
-| `getAgentsByMetadata`    | `(metadataKey, fromBlock?, toBlock?) → { agentId, rawValue: Uint8Array }[]`      | Returns all agents that had a given metadata key set, by scanning `MetadataSet` events. May include duplicates if a key was overwritten — filter to the latest entry per `agentId` or confirm with `getMetadata` for the current value. |
-| `findAgentsWithMetadata` | `(metadataKey, fromBlock?, toBlock?) → { agentId, uri, rawValue: Uint8Array }[]` | Higher-level helper: scans `MetadataSet` events, deduplicates by `agentId` (latest event wins), and fetches the on-chain URI for each matching agent. Use `ethers.toBigInt(rawValue) === 1n` to filter for boolean-flag metadata keys.  |
+| Method                   | Signature                                                                        | Description                                                                                                                                                                                                                              |
+| ------------------------ | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `register`               | `(agentURI: string, metadata?: MetadataEntry[]) → RegisterResult`                | Mints a new agent NFT with optional on-chain metadata. Returns `{ agentId, txHash }`.                                                                                                                                                    |
+| `getAgentURI`            | `(agentId: bigint) → string`                                                     | Reads the stored `bzz://` URI from the NFT.                                                                                                                                                                                              |
+| `setAgentURI`            | `(agentId, newURI) → txHash`                                                     | Updates the URI. Owner/operator only.                                                                                                                                                                                                    |
+| `getOwner`               | `(agentId: bigint) → address`                                                    | Returns current NFT owner.                                                                                                                                                                                                               |
+| `setAgentWallet`         | `(agentId, wallet, deadline, sig) → txHash`                                      | Attaches a hot wallet for payments, keeping the agent NFT owner separate. Requires EIP-712 proof.                                                                                                                                        |
+| `signAgentWalletAuth`    | `(agentId, walletSigner, owner, ttl?) → WalletAuth`                              | The new wallet's consent for `setAgentWallet`: EIP-712 `AgentWalletSet(agentId, newWallet, owner, deadline)`, domain `ERC8004IdentityRegistry` v1, deadline ≤ 5 min. `agentWalletTypedData` returns the same data for signing elsewhere. |
+| `getAgentWallet`         | `(agentId: bigint) → address`                                                    | Returns the associated wallet, or zero address.                                                                                                                                                                                          |
+| `setMetadata`            | `(agentId, key, value: Uint8Array) → txHash`                                     | Stores arbitrary key/value bytes on-chain.                                                                                                                                                                                               |
+| `getMetadata`            | `(agentId, key) → Uint8Array`                                                    | Reads stored metadata bytes.                                                                                                                                                                                                             |
+| `getRegisteredAgents`    | `(fromBlock?, toBlock?) → { agentId, agentURI, owner }[]`                        | Returns all agents registered in the given block range by scanning `Registered` events.                                                                                                                                                  |
+| `getAgentsByMetadata`    | `(metadataKey, fromBlock?, toBlock?) → { agentId, rawValue: Uint8Array }[]`      | Returns all agents that had a given metadata key set, by scanning `MetadataSet` events. May include duplicates if a key was overwritten — filter to the latest entry per `agentId` or confirm with `getMetadata` for the current value.  |
+| `findAgentsWithMetadata` | `(metadataKey, fromBlock?, toBlock?) → { agentId, uri, rawValue: Uint8Array }[]` | Higher-level helper: scans `MetadataSet` events, deduplicates by `agentId` (latest event wins), and fetches the on-chain URI for each matching agent. Use `ethers.toBigInt(rawValue) === 1n` to filter for boolean-flag metadata keys.   |
 
 ---
 
 ### ReputationModule (`erc8004.reputation`)
 
-| Method               | Signature                                                       | Description                                                                          |
-| -------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `postFeedback`       | `(params: PostFeedbackParams) → txHash`                         | Submits a feedback score to the Reputation Registry.                                 |
-| `revokeFeedback`     | `(agentId, feedbackIndex) → txHash`                             | Revokes a previously submitted feedback entry.                                       |
-| `getFeedback`        | `(agentId, clientAddress, feedbackIndex) → FeedbackResult`      | Reads a single feedback entry.                                                       |
-| `getSummary`         | `(agentId, clientAddresses?, tag1?, tag2?) → ReputationSummary` | Aggregates feedback on-chain. Auto-fetches client list if not provided.              |
-| `signFeedbackAuth`   | `(agentId, consumerAddress, ttlSeconds?) → FeedbackAuth`        | Provider signs an EIP-712 token authorizing a consumer to post feedback.             |
-| `verifyFeedbackAuth` | `(auth, expectedConsumer?) → recoveredSigner`                   | Verifies a `FeedbackAuth` token off-chain. Throws if expired or consumer mismatched. |
+| Method                      | Signature                                                                             | Description                                                                        |
+| --------------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `postFeedback`              | `(params: PostFeedbackParams) → { txHash, feedbackIndex, blockNumber }`               | `giveFeedback` from the signer (who becomes the clientAddress).                    |
+| `revokeFeedback`            | `(agentId, feedbackIndex) → txHash`                                                   | Revokes the signer's feedback entry.                                               |
+| `appendResponse`            | `(agentId, clientAddress, feedbackIndex, responseURI, responseHash) → txHash`         | Appends a response (e.g. the seller's rebuttal) to an entry.                       |
+| `getFeedback`               | `(agentId, clientAddress, feedbackIndex) → FeedbackResult`                            | Reads a single feedback entry.                                                     |
+| `getClients`                | `(agentId, blockTag?) → string[]`                                                     | Every address that left feedback. `blockTag` needs an archive RPC.                 |
+| `readAllFeedback`           | `(agentId, clients, { tag1?, tag2?, includeRevoked?, blockTag? }) → FeedbackEntry[]`  | Entries from `clients`; revoked excluded by default.                               |
+| `getSummary`                | `(agentId, clientAddresses, tag1?, tag2?) → ReputationSummary`                        | The registry's average over `clientAddresses` (required — pass the PoP-valid set). |
+| `getNewFeedbackEvents`      | `(agentId, { fromBlock, toBlock?, chunkSize?, clientAddress? }) → NewFeedbackEvent[]` | Paged log scan. The only place `feedbackURI` / `feedbackHash` are available.       |
+| `getFeedbackRevokedEvents`  | same options → `FeedbackRevokedEvent[]`                                               | Paged log scan.                                                                    |
+| `getResponseAppendedEvents` | same options → `ResponseAppendedEvent[]`                                              | Paged log scan.                                                                    |
 
 **`PostFeedbackParams`:**
 
 ```typescript
 interface PostFeedbackParams {
   agentId: bigint;
-  score: number; // 0–100 (clamped automatically)
-  tags?: [string?, string?]; // up to 2 classification tags
-  evidenceURI?: string; // bzz:// or https:// — anchors fine-grained review data off-chain; its keccak256 hash is stored on-chain for integrity
-  feedbackAuth?: FeedbackAuth; // EIP-712 token from provider (recommended)
-  endpoint?: string; // which provider endpoint was used
-}
-```
-
-**`FeedbackAuth`:**
-
-```typescript
-interface FeedbackAuth {
-  agentId: bigint;
-  consumer: string; // consumer wallet address
-  deadline: number; // unix timestamp — token expires after this
-  signature: string; // EIP-712 signature from the provider wallet
+  value: bigint; // fixed-point score; the marketplace defines the scale (not clamped)
+  valueDecimals: number; // 0–18
+  tag1?: string;
+  tag2?: string;
+  endpoint?: string;
+  feedbackURI: string; // e.g. swarm-feed://<owner>/<topic>/<index>
+  feedbackHash: string; // keccak256 of the content feedbackURI resolves to
 }
 ```
 
@@ -589,20 +607,27 @@ interface FeedbackAuth {
 
 ### AggregateModule (`erc8004.aggregate`)
 
-| Method                | Signature                             | Description                                           |
-| --------------------- | ------------------------------------- | ----------------------------------------------------- |
-| `calculateReputation` | `(agentId: bigint) → ReputationScore` | Fetches all feedback and returns an aggregated score. |
+| Method                | Signature                                                              | Description                                                     |
+| --------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `calculateReputation` | `(agentId, clientAddresses, { minScore, minCount }) → ReputationScore` | Average over the given clients, judged against your thresholds. |
 
-**`ReputationScore`:**
+---
 
-```typescript
-interface ReputationScore {
-  agentId: bigint;
-  score: number; // 0–100 average across all feedback
-  feedbackCount: bigint;
-  reliable: boolean; // true when score >= 70 AND feedbackCount >= 3
-}
-```
+### Reviews module
+
+Pure helpers plus Bee/chain-backed checks for the reputation layer (spec: repo-root `CLAUDE.md`).
+
+| Export                                                                                                      | Purpose                                                                                       |
+| ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `reviewFeedTopic(agentId)`                                                                                  | Per-seller topic: `keccak256("swarm-ai-review.v1" ‖ agentId as uint256)`                      |
+| `encodeFeedbackURI` / `parseFeedbackURI`                                                                    | `swarm-feed://<owner>/<topic>/<index>`                                                        |
+| `feedIdentifier(topic, index)`                                                                              | `keccak256(topic ‖ index as 8-byte BE)` (bee-js 12 does not export its own)                   |
+| `buildReview` / `serializeReview` / `parseReview` / `reviewHash`                                            | Review file with a random salt, canonical JSON, keccak256                                     |
+| `prepareReviewUpload` / `uploadReviewChunks` / `nextFeedIndex`                                              | Build content chunks + the signed feed update offline; upload with per-address stamps         |
+| `verifyPoP(input, reader, config)` / `createPoPChainReader`                                                 | Proof-of-Purchase rules: settlement, payer, factory clone + terms, floor, PurchaseIntent ↔ tx |
+| `verifyReview(entry, { bee, config })`                                                                      | Feed signature, `feedbackHash`, JSON ↔ on-chain consistency                                   |
+| `findAnchoredPurchase(deps, params)`                                                                        | The buyer's non-revoked review already claiming a purchase (one review per purchase)          |
+| `signEnvelopeRequest` / `recoverEnvelopeRequestSigner` / `envelopeRequestDomain` / `isEnvelopeRequestFresh` | EIP-712 envelope request, bound to one marketplace                                            |
 
 ---
 
@@ -697,7 +722,7 @@ Agents registered on Base Sepolia are browsable at [8004scan.io](https://8004sca
 
 ## Running the Integration Test
 
-The integration test registers a real agent on Base Sepolia, signs a `FeedbackAuth`, posts feedback, and reads back the aggregated reputation. It sends two on-chain transactions and requires testnet ETH.
+The integration test registers a real agent on Base Sepolia and exercises the catalog purchase path. It sends on-chain transactions and requires testnet ETH. Feedback is not posted: the registry rejects feedback from the agent's own owner, so a review needs a separate buyer wallet.
 
 ### 1. Set up environment
 
@@ -753,15 +778,6 @@ Expected output:
 [Transaction] 0x...
 [On-chain URI] bzz://placeholder-...
 [On-chain owner] 0xProviderAddress
-
-[Step 4: Sign FeedbackAuth (provider → consumer)]
-[FeedbackAuth] { agentId: '42', consumer: '0x...', deadline: 1234567890, signature: '0x...' }
-[Recovered signer] 0xProviderAddress
-[FeedbackAuth verify] OK
-
-[Step 5: Post feedback (Reputation Registry)]
-  Skipped — feedback must come from a different funded wallet than the agent owner.
-  The contract does not allow the agent owner to submit feedback on their own agent.
 
 ✓ Steps completed successfully
   agentId: 42
@@ -853,7 +869,7 @@ pnpm test:sepolia     # end-to-end integration test on Base Sepolia
 
 ## Security
 
-All sensitive operations are off-chain. The SDK signs `FeedbackAuth` tokens using EIP-712 typed data and forwards the resulting signature to the Reputation Registry — private keys are never transmitted or stored. Read-only operations (checking reputation, reading agent URIs) require only a `Provider` and expose no key material.
+Signing happens locally: transactions, review feed updates and EIP-712 envelope requests are signed with the caller's key, which is never transmitted or stored. Read-only operations (checking reputation, reading agent URIs) require only a `Provider` and expose no key material.
 
 ---
 

@@ -379,8 +379,11 @@ export const SwarmMarketToolsSchema = [
       'RevenueSplitter clone exists and binds it to the agent under the agent_splitter ' +
       'registry key. Replaces create_agent and create_split_contract. Reports per-step ' +
       'outcomes in identity/splitter/link: identity failures are fatal, splitter failures are ' +
-      'reported, link failures are always non-fatal. Set dryRun true to report what would ' +
-      'happen without spending gas.',
+      'reported, link failures are always non-fatal. When the seller is not the NFT owner, it ' +
+      'is registered as the ERC-8004 agent wallet (signed by AGENT_PAYMENT_PK, or by a ' +
+      'pre-signed agentWalletConsent; otherwise agentWallet.consentRequest says what to sign) — ' +
+      'without it, reviews of the agent fail Proof-of-Purchase. Set dryRun true to report what ' +
+      'would happen without spending gas.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -437,6 +440,18 @@ export const SwarmMarketToolsSchema = [
           type: 'boolean',
           description: 'Identity-only registration: skip the splitter and the link entirely.',
         },
+        agentWalletConsent: {
+          type: 'object',
+          description:
+            "The seller's signed AgentWalletSet consent (from a previous call's " +
+            'agentWallet.consentRequest), needed when the seller is not the NFT owner and ' +
+            'AGENT_PAYMENT_PK is unset. Valid for at most 5 minutes.',
+          properties: {
+            deadline: { type: 'number' },
+            signature: { type: 'string' },
+          },
+          required: ['deadline', 'signature'],
+        },
       },
       required: ['name', 'description'],
     },
@@ -447,6 +462,12 @@ export const SwarmMarketToolsSchema = [
         signer: { type: 'string' },
         chain: { type: 'string' },
         dryRun: { type: 'boolean' },
+        agentWallet: {
+          type: 'object',
+          description:
+            'not-needed | already-set | set | would-set | needs-consent | skipped | failed. ' +
+            'needs-consent carries consentRequest: EIP-712 typed data the seller must sign.',
+        },
         identity: {
           type: 'object',
           properties: {
@@ -726,6 +747,166 @@ export const SwarmMarketToolsSchema = [
         note: { type: 'string' },
       },
       required: ['agentId', 'splitter', 'txHash', 'metadataKey', 'alreadyLinked'],
+    },
+    execution: {
+      taskSupport: 'forbidden',
+    },
+  },
+  {
+    name: 'list_purchases',
+    title: 'List purchases',
+    description:
+      'List purchases recorded locally by purchase_catalog_item (BUYER_DB_PATH), with their review ' +
+      'state, so an agent can find the txHash to pass to submit_review. Only recorded purchases ' +
+      '(reviewable: true — the signed PurchaseIntent was kept) can be reviewed.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        unreviewedOnly: {
+          type: 'boolean',
+          description: 'Only purchases without a live review (none / uploaded / revoked).',
+        },
+      },
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        count: { type: 'number' },
+        purchases: { type: 'array', items: { type: 'object' } },
+      },
+      required: ['count', 'purchases'],
+    },
+    execution: {
+      taskSupport: 'forbidden',
+    },
+  },
+  {
+    name: 'submit_review',
+    title: 'Submit review',
+    description:
+      'Review a purchase: writes the review to the buyer’s own Swarm feed and anchors it with ' +
+      'ERC-8004 giveFeedback, signed by BUYER_WALLET_PK (the key that paid). Checks ' +
+      'Proof-of-Purchase first, requests storage envelopes from the marketplace service (or uses ' +
+      'postageBatchId to self-fund), uploads, then sends giveFeedback (the buyer pays gas). One ' +
+      'live review per purchase; revoke_review frees it for a replacement. Safe to re-run: resumes ' +
+      'after a failed upload or transaction. Errors start with a code (pop_invalid, ' +
+      'already_reviewed, envelope_quota_exceeded, batch_unavailable, insufficient_gas, …).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        txHash: { type: 'string', description: 'Settlement tx of the purchase (list_purchases).' },
+        agentId: { type: 'string', description: "The seller's ERC-8004 agent id." },
+        value: {
+          type: 'number',
+          description: "Score on the marketplace's scale (see its /v1/reviews/config score).",
+        },
+        comment: { type: 'string', description: 'Review text, stored on Swarm (never on-chain).' },
+        tag1: { type: 'string' },
+        tag2: { type: 'string' },
+        postageBatchId: {
+          type: 'string',
+          description:
+            'Pay for storage with this batch instead of marketplace envelopes (e.g. after envelope_quota_exceeded).',
+        },
+        marketplaceServiceUrl: {
+          type: 'string',
+          description: 'Marketplace service base URL. Falls back to MARKETPLACE_SERVICE_URL.',
+        },
+      },
+      required: ['txHash', 'agentId', 'value'],
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        agentId: { type: 'string' },
+        txHash: { type: 'string' },
+        itemId: { type: 'string' },
+        feedbackIndex: { type: 'string' },
+        feedbackURI: { type: 'string', description: 'swarm-feed://<owner>/<topic>/<index>' },
+        feedbackHash: { type: 'string' },
+        reviewReference: { type: 'string' },
+        feedIndex: { type: 'string' },
+        giveFeedbackTxHash: { type: 'string' },
+        storage: { type: 'string', enum: ['marketplace-envelopes', 'self-funded', 'resumed'] },
+        message: { type: 'string' },
+      },
+      required: ['agentId', 'txHash', 'feedbackIndex', 'feedbackURI', 'feedbackHash'],
+    },
+    execution: {
+      taskSupport: 'forbidden',
+    },
+  },
+  {
+    name: 'revoke_review',
+    title: 'Revoke review',
+    description:
+      'Revoke the buyer’s own review on-chain (ERC-8004 revokeFeedback, signed by BUYER_WALLET_PK). ' +
+      'Identify it by the purchase txHash, or by agentId + feedbackIndex. The purchase can then be ' +
+      'reviewed again with submit_review.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        txHash: { type: 'string', description: 'The reviewed purchase.' },
+        agentId: { type: 'string' },
+        feedbackIndex: { type: 'string' },
+        marketplaceServiceUrl: { type: 'string' },
+      },
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        agentId: { type: 'string' },
+        feedbackIndex: { type: 'string' },
+        revokeTxHash: { type: 'string' },
+        txHash: { type: 'string' },
+        message: { type: 'string' },
+      },
+      required: ['agentId', 'feedbackIndex', 'revokeTxHash'],
+    },
+    execution: {
+      taskSupport: 'forbidden',
+    },
+  },
+  {
+    name: 'get_seller_reputation',
+    title: 'Get seller reputation',
+    description:
+      "A seller's Sybil-resistant reputation: only reviews anchored on-chain and backed by a valid " +
+      "Proof-of-Purchase count (one per purchase). Uses the marketplace's indexer when available; " +
+      'with verify: true (before paying) or without an indexer it checks the chain itself — census ' +
+      'via the registry, then each review’s feed signature, hash and PoP. Read-only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agentId: { type: 'string' },
+        verify: { type: 'boolean', description: 'Check the indexer answer against the chain.' },
+        sample: { type: 'number', description: 'Verify at most this many (most recent) reviews.' },
+        fromBlock: {
+          type: 'number',
+          description:
+            'First block of the review scan (default: recent window). Older reviews are counted, not verified.',
+        },
+        marketplaceServiceUrl: { type: 'string' },
+      },
+      required: ['agentId'],
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        agentId: { type: 'string' },
+        score: { type: ['number', 'null'] },
+        scale: { type: 'object' },
+        count: { type: 'number' },
+        popValidCount: { type: 'number' },
+        lastReviewAt: { type: ['string', 'null'] },
+        checkpoint: { type: 'object' },
+        source: { type: 'string', enum: ['indexer', 'chain'] },
+        scannedFromBlock: { type: 'number' },
+        unscanned: { type: 'number' },
+        verification: { type: 'object' },
+        reviews: { type: 'array', items: { type: 'object' } },
+      },
+      required: ['agentId', 'count', 'popValidCount', 'source'],
     },
     execution: {
       taskSupport: 'forbidden',

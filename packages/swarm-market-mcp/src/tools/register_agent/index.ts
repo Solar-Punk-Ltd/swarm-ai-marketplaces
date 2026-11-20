@@ -46,6 +46,8 @@ import {
 } from '../../agent-identity';
 import type { Candidate, IdentityContext } from '../../agent-identity';
 import { createSplitter, factoryAddress, readSplitter, sellerAddress } from '../../splitter';
+import { Wallet } from 'ethers';
+import { ensureAgentWallet } from '../../agent-wallet';
 import {
   RegisterAgentArgs,
   RegisterAgentIdentity,
@@ -364,6 +366,45 @@ export async function registerAgent(args: RegisterAgentArgs): Promise<ToolRespon
     }
   }
 
+  // ── G. Agent wallet — always non-fatal ────────────────────────────────────
+  // PoP's seller check accepts a splitter only if its seller is the NFT owner or the agent wallet.
+  const payoutKey = config.splitter.sellerPrivateKey;
+  const agentWallet = args.skipSplitter
+    ? { status: 'skipped' as const, wallet: null, reason: 'skipSplitter' }
+    : await ensureAgentWallet(
+        {
+          agentId,
+          owner: ctx.signer,
+          seller: splitter.seller,
+          dryRun,
+          consent: args.agentWalletConsent,
+          payoutSigner: payoutKey ? new Wallet(payoutKey) : undefined,
+        },
+        {
+          getAgentWallet: (id) =>
+            withTimeout(erc8004.identity.getAgentWallet(id), RPC_TIMEOUT_MS, 'RPC getAgentWallet'),
+          setAgentWallet: (id, wallet, deadline, signature) =>
+            withTimeout(
+              erc8004.identity.setAgentWallet(id, wallet, deadline, signature),
+              TX_TIMEOUT_MS,
+              'setAgentWallet',
+            ),
+          signConsent: (id, payout, owner) =>
+            erc8004.identity.signAgentWalletAuth(id, payout, owner),
+          typedData: (id, wallet, owner, deadline) =>
+            erc8004.identity.agentWalletTypedData(id, wallet, owner, deadline),
+          nowSeconds: () => Math.floor(Date.now() / 1000),
+        },
+      );
+  if (agentWallet.status === 'needs-consent' || agentWallet.status === 'failed') {
+    warnings.push(
+      `The splitter's seller ${agentWallet.wallet} is not the agent owner and is not its registered ` +
+        `agent wallet (${agentWallet.status}${agentWallet.error ? `: ${agentWallet.error}` : ''}). ` +
+        'Until it is, reviews of this agent fail Proof-of-Purchase (splitter_seller_mismatch) and ' +
+        'dashboards show the splitter link as unverified.',
+    );
+  }
+
   const result: RegisterAgentResult = {
     feedOwner: ctx.feedOwner,
     signer: ctx.signer,
@@ -372,11 +413,12 @@ export async function registerAgent(args: RegisterAgentArgs): Promise<ToolRespon
     identity,
     splitter,
     link,
+    agentWallet,
     warnings,
     message:
       `${dryRun ? '[dry run] ' : ''}identity ${identity.status}` +
       `${identity.agentId ? ` (agent ${identity.agentId})` : ''}, ` +
-      `splitter ${splitter.status}, link ${link.status}.`,
+      `splitter ${splitter.status}, link ${link.status}, agent wallet ${agentWallet.status}.`,
   };
 
   return getResponseWithStructuredContent(result);

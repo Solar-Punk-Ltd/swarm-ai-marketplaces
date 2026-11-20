@@ -1,0 +1,109 @@
+# Marketplace flow — end to end (incl. reputation)
+
+Covers setup, seller onboarding, discovery, purchase, payout, review and indexing. All steps are built, including the optional UI (Phase 6): `marketplace-ui` shows reputation on seller cards and `erc8004-dashboard` on agent cards.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant OP as Marketplace operator<br/>(marketplace-service + Bee)
+    participant SA as Seller agent<br/>(swarm-market-mcp)
+    participant SS as Seller server<br/>(x402-swarm-server)
+    participant BA as Buyer agent<br/>(swarm-market-mcp, local)
+    participant FC as x402 Facilitator
+    participant SW as Swarm (Bee)
+    participant CH as Base Sepolia<br/>(IdentityRegistry, ReputationRegistry,<br/>SplitterFactory / splitter, USDC)
+
+    Note over OP,CH: 1. Marketplace setup
+    OP->>CH: Deploy SplitterFactory(owner, treasury, defaultTaxBps)
+    OP->>OP: Run marketplace-service · fund Bee wallet (xBZZ) for review batches
+
+    Note over OP,CH: 2. Seller onboarding
+    SA->>SW: Upload Agent Card (feed, BEE_FEED_PK)
+    SA->>CH: IdentityRegistry.register(agentURI) → agentId
+    SA->>CH: SplitterFactory.createSplitter(seller) → splitter clone
+    SA->>CH: setMetadata(agentId, "agent_splitter", splitter)
+    opt Seller (payout address) is not the NFT owner
+        SA->>CH: setAgentWallet(agentId, seller, deadline, sig)<br/>sig = seller's EIP-712 AgentWalletSet consent (AGENT_PAYMENT_PK or pre-signed, ≤ 5 min)<br/>— PoP counts a sale only if the splitter's seller is the owner or agent wallet
+    end
+    SA->>SW: build_catalog: items (ACT-protected), Mantaray, catalog feed (payTo = splitter)
+
+    Note over OP,CH: 3. Discovery + reputation check (comparison phase)
+    BA->>CH: Query MetadataSet events (findAgentsWithMetadata, e.g. swarm_ai_capable) → candidate agents
+    BA->>OP: GET /v1/sellers/:agentId/reputation (indexer · without it get_seller_reputation reads the chain)
+    alt Indexer has a checkpoint
+        OP-->>BA: { score, count, popValidCount, pendingCount, recency,<br/>checkpoint, popValidClients, responseCount }
+    else First pass not done (or indexer disabled)
+        OP-->>BA: 503 indexer_unavailable (or 404)
+        BA->>CH: get_seller_reputation reads the chain itself
+    end
+    opt verify = true (commitment phase)
+        BA->>CH: Census at checkpoint.block (archive): getClients + readAllFeedback<br/>(non-revoked) = count? · short log scan checkpoint → latest
+        BA->>SW: Fetch reviews via feedbackURI (swarm-feed://owner/topic/index)
+        BA->>BA: verifyReview (hash, SOC owner, JSON = on-chain entry) + verifyPoP
+    end
+
+    Note over OP,CH: 4. Purchase (x402, three-phase)
+    BA->>SW: Read catalog feed → Mantaray → item.jsonld
+    BA->>SS: POST /v1/items/:itemId/purchase (no X-Payment)
+    SS-->>BA: 402 challenge (accepts[], purchaseIntentDomain, payTo = splitter)
+    BA->>BA: Sign PurchaseIntent (EIP-712) + ERC-3009 auth (shared nonce)
+    BA->>SS: POST purchase + X-Payment
+    SS->>SS: Verify intent (sig, domain, item, payTo = splitter, time, nonce)
+    SS->>FC: /verify
+    SS->>FC: /settle
+    FC->>CH: USDC.transferWithAuthorization → splitter<br/>(Transfer + AuthorizationUsed events)
+    FC-->>SS: txHash
+    SS->>SS: Record purchase (consumer, itemId, txHash, payTo)
+    SS->>SW: ACT patchGrantees(buyer key) + update item state feed
+    SS-->>BA: ActGrantResult { txHash, actHistoryRef, … }
+    BA->>BA: Store purchase + signed PurchaseIntent in buyer.db
+    BA->>SW: Download content via ACT
+
+    Note over OP,CH: 5. Payout (any time, permissionless)
+    Note over SA,CH: Either party may call. Every call pays BOTH shares: (1 − t) → seller, t → treasury
+    SA->>CH: splitter.distribute(token) (e.g. right after a sale)
+    OP->>CH: Operator via marketplace-ui: factory.distributeAll(token, offset, limit)<br/>(paged sweep, repeated per page)
+    CH-->>SA: (1 − t) seller share
+    CH-->>OP: t tax → treasury
+
+    Note over OP,CH: 6. Review — submit_review (MCP, buyer) + envelope endpoint (marketplace-service)
+    BA->>OP: GET /v1/reviews/config
+    BA->>CH: Pre-flight verifyPoP (tx receipt, agent_splitter at settlement log<br/>via archive RPC, factory clone + terms, AuthorizationUsed)
+    BA->>CH: findAnchoredPurchase (paged from settlement block)<br/>→ already_reviewed if a non-revoked review from the buyer cites it
+    BA->>BA: Build review JSON (score, comment, random salt, proofOfPayment + purchaseIntent)<br/>feedbackHash = keccak256(JSON) · compute chunk addresses (JSON chunks + feed SOC)
+    BA->>BA: Sign EnvelopeRequest (EIP-712, domain = chainId + SplitterFactory)
+    BA->>OP: POST /v1/reviews/envelopes { agentId, proofOfPayment, chunkAddresses, timestamp, signature }
+    OP->>OP: Verify request signature = clientAddress, timestamp fresh
+    OP->>CH: verifyPoP (7 rules)
+    OP->>CH: NewFeedback(agentId, clientAddress) from settlement block, paged<br/>→ drop revoked → fetch → txHash already anchored?
+    OP->>OP: Refuse if requester ≠ payer or a non-revoked review from the payer is anchored<br/>· idempotent per buyer + txHash · cap maxEnvelopesPerPurchase
+    alt Seller has no usable batch yet
+        OP->>SW: buyStorage: immutable batch for seller<br/>(REVIEW_BATCH_SIZE_MB / REVIEW_BATCH_TTL_DAYS, async)
+        OP-->>BA: 503 batch_unavailable { retryAfter } + Retry-After header
+        BA->>OP: Retry signed request after retryAfter
+    end
+    alt Envelopes issued
+        OP->>SW: createEnvelope(batch, address) per chunk
+        OP-->>BA: envelopes (score and text never seen)
+        BA->>SW: Upload review chunks + feed SOC with envelopes (buyer key,<br/>topic = keccak256("swarm-ai-review.v1" ‖ agentId),<br/>payload = timestamp ‖ R)
+    else Refused (or envelope_quota_exceeded)
+        BA->>SW: Same upload with own postageBatchId (self-funded) · refusal can't block publication
+    end
+    BA->>CH: ReputationRegistry.giveFeedback(agentId, value, …,<br/>swarm-feed://owner/topic/index, feedbackHash)
+    CH-->>BA: NewFeedback(agentId, client, feedbackIndex)
+
+    Note over OP,CH: 7. Indexing (marketplace-service indexer, behind head by confirmations)
+    loop Every tick
+        CH-->>OP: Ingest: NewFeedback / FeedbackRevoked / ResponseAppended (all agents)<br/>checkpoint → head − confirmations, paged by LOG_RANGE_MAX
+        OP->>OP: Store events + new checkpoint (one transaction)
+        OP->>SW: Verify pending reviews once: fetch via feedbackURI
+        OP->>OP: verifyReview + verifyPoP → valid / invalid<br/>(missing content retried, RPC errors never a verdict)
+    end
+    OP->>OP: On GET reputation: score at read time — anchored, non-revoked, valid (Rule C)<br/>· one per purchase (rule 4: earliest non-revoked from the payer)
+    Note over OP: Dashboards read GET /v1/sellers/:agentId/reputation via CORS (CORS_ALLOWED_ORIGINS):<br/>marketplace-ui on seller cards (every minute, verified agents only),<br/>erc8004-dashboard on agent cards — display only
+
+    Note over OP,CH: 8. Revocation (optional) — revoke_review
+    BA->>CH: revokeFeedback(agentId, feedbackIndex)
+    CH-->>OP: FeedbackRevoked → drop from score
+    Note over BA,OP: Purchase is free again: submit_review with the same txHash<br/>publishes a replacement (edit), within maxEnvelopesPerPurchase
+```

@@ -1,5 +1,11 @@
 import dotenv from 'dotenv';
-import { DEFAULT_BEE_API_URL, DEFAULT_CHAIN, DEFAULT_RPC_URL } from './constants';
+import {
+  DEFAULT_BEE_API_URL,
+  DEFAULT_BUYER_DB_PATH,
+  DEFAULT_CHAIN,
+  DEFAULT_LOG_RANGE_MAX,
+  DEFAULT_RPC_URL,
+} from './constants';
 
 dotenv.config({ quiet: true });
 
@@ -41,6 +47,22 @@ export interface PaymentConfig {
 export interface SplitterConfig {
   factoryAddress?: string;
   sellerAddress?: string;
+  // Key of sellerAddress, when available: lets register_agent sign the consent that registers the
+  // seller as the agent wallet (needed whenever the seller is not the NFT owner).
+  sellerPrivateKey?: string;
+}
+
+// Buyer-side reviews (submit_review / revoke_review / get_seller_reputation / list_purchases).
+// Signed with payment.walletPrivateKey — the buyer key that paid is the only key that can review.
+export interface ReviewConfig {
+  // Local SQLite store of purchases (incl. the signed PurchaseIntent) and their review state.
+  buyerDbPath: string;
+  // The marketplace's backend: GET /v1/reviews/config, envelopes, (later) the indexer.
+  marketplaceServiceUrl?: string;
+  // Archive node for PoP checks that read past state; falls back to chain.rpcUrl.
+  archiveRpcUrl?: string;
+  // eth_getLogs page size — keep within the RPC provider's block-range cap.
+  logRangeMax: number;
 }
 
 export interface Config {
@@ -48,6 +70,7 @@ export interface Config {
   chain: ChainConfig;
   payment: PaymentConfig;
   splitter: SplitterConfig;
+  review: ReviewConfig;
 }
 
 const config: Config = {
@@ -70,6 +93,13 @@ const config: Config = {
   splitter: {
     factoryAddress: process.env.SPLITTER_FACTORY_ADDRESS,
     sellerAddress: process.env.AGENT_PAYMENT_ADDRESS,
+    sellerPrivateKey: normalizeHexKey(process.env.AGENT_PAYMENT_PK),
+  },
+  review: {
+    buyerDbPath: process.env.BUYER_DB_PATH || DEFAULT_BUYER_DB_PATH,
+    marketplaceServiceUrl: process.env.MARKETPLACE_SERVICE_URL,
+    archiveRpcUrl: process.env.ARCHIVE_RPC_URL,
+    logRangeMax: Number(process.env.LOG_RANGE_MAX || DEFAULT_LOG_RANGE_MAX),
   },
 };
 

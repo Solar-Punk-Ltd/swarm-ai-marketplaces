@@ -116,6 +116,13 @@ export const registerAgentSchema = z.object({
   dryRun: z.boolean().optional(),
   // Identity-only registration: skip the splitter and the link.
   skipSplitter: z.boolean().optional(),
+  // Pre-signed AgentWalletSet consent from the seller (see register_agent's consentRequest).
+  agentWalletConsent: z
+    .object({
+      deadline: z.number().int().positive(),
+      signature: z.string().regex(/^0x[0-9a-fA-F]+$/),
+    })
+    .optional(),
 });
 
 export const findAgentsByMetadataSchema = z
@@ -143,4 +150,41 @@ export const purchaseCatalogItemSchema = z.object({
   itemId: z.string().min(1, { message: 'Missing required parameter: itemId.' }),
   x402Endpoint: z.string().optional(),
   granteePublicKey: z.string().optional(),
+});
+
+const hex32 = /^0x[0-9a-fA-F]{64}$/;
+const uint = /^(0|[1-9][0-9]*)$/;
+
+export const listPurchasesSchema = z.object({
+  unreviewedOnly: z.boolean().optional(),
+});
+
+export const submitReviewSchema = z.object({
+  txHash: z.string().regex(hex32, { message: 'txHash must be a 0x-prefixed 32-byte hex string.' }),
+  agentId: z.string().regex(uint, { message: 'agentId must be a non-negative integer string.' }),
+  value: z.number({ required_error: 'Missing required parameter: value.' }),
+  comment: z.string().optional(),
+  tag1: z.string().optional(),
+  tag2: z.string().optional(),
+  postageBatchId: z.string().optional(),
+  marketplaceServiceUrl: z.string().optional(),
+});
+
+export const revokeReviewSchema = z
+  .object({
+    txHash: z.string().regex(hex32).optional(),
+    agentId: z.string().regex(uint).optional(),
+    feedbackIndex: z.string().regex(uint).optional(),
+    marketplaceServiceUrl: z.string().optional(),
+  })
+  .refine((a) => a.txHash || (a.agentId && a.feedbackIndex), {
+    message: 'Pass txHash, or agentId + feedbackIndex.',
+  });
+
+export const getSellerReputationSchema = z.object({
+  agentId: z.string().regex(uint, { message: 'agentId must be a non-negative integer string.' }),
+  verify: z.boolean().optional(),
+  sample: z.number().int().positive().optional(),
+  fromBlock: z.number().int().nonnegative().optional(),
+  marketplaceServiceUrl: z.string().optional(),
 });

@@ -24,6 +24,8 @@ import {
   readHistorySince,
 } from '../lib/history';
 import type { History } from '../lib/history';
+import { EMPTY_REPUTATIONS, loadReputations } from '../lib/reputation';
+import type { ReputationIndex } from '../lib/reputation';
 import type { BalanceSnapshot, Registry } from '../lib/reads';
 
 /**
@@ -38,6 +40,9 @@ import type { BalanceSnapshot, Registry } from '../lib/reads';
  *   minutes, a miss retried every 10s, three times. A link sweep a node error cut short (a 429,
  *   usually) is retried the same way: every 10s, three times, then every minute.
  *
+ * - **Every minute: reputation**, from the marketplace-service indexer (our service, not the RPC),
+ *   or as soon as the set of verified agents changes. Reviews arrive at human pace.
+ *
  * **On load, one sweep at a time.** The agent-link sweep runs first — it is small, and it labels
  * the sellers at the top of the page — and the Activity sweep starts once it has finished. Both
  * at once, plus the block-time reads after the Activity sweep, is the burst a public RPC answers
@@ -48,6 +53,8 @@ const AGENT_LINKS_RELOAD_MS = 5 * 60_000;
 const AGENT_LINKS_RETRY_MS = 10_000;
 const AGENT_LINKS_MAX_RETRIES = 3;
 const AGENT_LINKS_BACKOFF_MS = 60_000;
+
+const REPUTATION_RELOAD_MS = 60_000;
 
 /** An interrupted full history sweep is repeated after this long; increments carry on meanwhile. */
 const HISTORY_RESWEEP_MS = 60_000;
@@ -83,6 +90,11 @@ export interface MarketplaceState {
   agentLinks: AgentLinkIndex;
   /** Purchases and payouts across every clone, newest first. */
   history: History;
+  /**
+   * Indexer reputation per agent id, for verified agents only. Empty when no marketplace service
+   * is configured.
+   */
+  reputations: ReputationIndex;
   /** Force an immediate refresh, e.g. right after a transaction confirms. */
   refresh: () => Promise<void>;
 }
@@ -107,6 +119,7 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
   const [agentLinks, setAgentLinks] = useState<AgentLinkIndex>(EMPTY_LINK_INDEX);
   const [balances, setBalances] = useState<BalanceSnapshot>();
   const [history, setHistory] = useState<History>(EMPTY_HISTORY);
+  const [reputations, setReputations] = useState<ReputationIndex>(EMPTY_REPUTATIONS);
   const [loading, setLoading] = useState(true);
   const [stale, setStale] = useState(false);
   const [error, setError] = useState<string>();
@@ -120,6 +133,9 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
   const agentLinksRef = useRef<AgentLinkIndex>(EMPTY_LINK_INDEX);
   const agentLinksSweep = useRef<{ splitters: string; nextAt: number; retries: number }>();
   const agentLinksInFlight = useRef(false);
+  const reputationsRef = useRef<ReputationIndex>(EMPTY_REPUTATIONS);
+  const reputationSweep = useRef<{ agents: string; at: number }>();
+  const reputationsInFlight = useRef(false);
   const inFlight = useRef(false);
 
   const showHistory = useCallback((next: History) => {
@@ -201,6 +217,36 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
     },
     [client, refreshSwarm, showAgentLinks],
   );
+
+  /**
+   * Reputation is shown for verified agents only — the same rule as avatars: an unverified link is
+   * a claim, and putting a score on it would lend it the indexer's authority. Reviews of such an
+   * agent would not pass PoP's seller check anyway.
+   */
+  const refreshReputations = useCallback(async () => {
+    const baseUrl = config.marketplaceServiceUrl;
+    if (!baseUrl || reputationsInFlight.current) return;
+    const agentIds = [
+      ...new Set(
+        [...agentLinksRef.current.bySplitter.values()]
+          .filter((link) => link.status === 'verified')
+          .map((link) => link.agentId.toString()),
+      ),
+    ].sort();
+    const agents = agentIds.join(',');
+    const last = reputationSweep.current;
+    if (last && last.agents === agents && Date.now() - last.at < REPUTATION_RELOAD_MS) return;
+
+    reputationsInFlight.current = true;
+    try {
+      const next = await loadReputations(baseUrl, agentIds, reputationsRef.current);
+      reputationsRef.current = next;
+      setReputations(next);
+      reputationSweep.current = { agents, at: Date.now() };
+    } finally {
+      reputationsInFlight.current = false;
+    }
+  }, []);
 
   const refreshHistory = useCallback(
     async (current: Registry) => {
@@ -294,6 +340,8 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
         }
         // Cheap when nothing is due: the caches make no request until a read is.
         void refreshSwarm();
+        // Decides for itself whether a read is due; never blocks balances.
+        void refreshReputations();
 
         const current = registryRef.current;
         if (current) {
@@ -320,7 +368,7 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
         inFlight.current = false;
       }
     },
-    [client, refreshAgentLinks, refreshHistory, refreshSwarm],
+    [client, refreshAgentLinks, refreshHistory, refreshReputations, refreshSwarm],
   );
 
   usePolling(() => tick(false), config.refreshIntervalMs);
@@ -346,6 +394,7 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
       fundedSplitters,
       agentLinks,
       history,
+      reputations,
       refresh,
     }),
     [
@@ -359,6 +408,7 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
       history,
       fundedSplitters,
       agentLinks,
+      reputations,
       refresh,
     ],
   );

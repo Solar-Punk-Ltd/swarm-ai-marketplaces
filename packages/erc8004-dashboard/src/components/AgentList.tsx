@@ -4,6 +4,7 @@ import { useAgents } from '../hooks/useAgents';
 import type { Agent } from '../context/AgentsContext';
 import AddAgentModal from './AddAgentModal';
 import { CATALOGUE_FEED_BROWSER_URL } from '../constants';
+import { formatScore, type ReputationState } from '../reputation';
 
 // ────────────────────────────────────────────────────────────────────
 // Design tokens — orange / warm-dark-grey / off-white
@@ -240,6 +241,49 @@ function Tag({ children, accent = false }: { children: React.ReactNode; accent?:
   );
 }
 
+/**
+ * `★ 87/100 · 3 reviews` from the marketplace indexer. Only reviews anchored on-chain and backed by
+ * a valid Proof-of-Purchase count (one per purchase); the tooltip says so.
+ */
+function ReputationLine({ reputation }: { reputation: ReputationState }) {
+  if (reputation === undefined) return null;
+  const base: React.CSSProperties = { fontFamily: MONO, fontSize: 13, cursor: 'help' };
+  if (reputation === 'syncing') {
+    return (
+      <span
+        style={{ ...base, color: C.text3 }}
+        title="The reputation indexer is still catching up."
+      >
+        Reviews syncing…
+      </span>
+    );
+  }
+  const { score, scale, popValidCount, pendingCount } = reputation;
+  const title =
+    'Counts only reviews anchored on-chain and backed by a valid Proof-of-Purchase, one per purchase.' +
+    (pendingCount > 0 ? ` ${pendingCount} still being verified.` : '');
+  if (score === null) {
+    return (
+      <span style={{ ...base, color: C.text3 }} title={title}>
+        No verified reviews yet
+      </span>
+    );
+  }
+  return (
+    <span style={{ ...base, color: C.text2 }} title={title}>
+      <span style={{ color: C.orange, fontWeight: 700 }}>★ {formatScore(score, scale)}</span>
+      <span style={{ color: C.text3 }}>/{scale.max}</span> · {popValidCount} review
+      {popValidCount === 1 ? '' : 's'}
+      {reputation.recency && (
+        <span style={{ color: C.text3 }}>
+          {' '}
+          · last {new Date(reputation.recency).toLocaleDateString()}
+        </span>
+      )}
+    </span>
+  );
+}
+
 function MetaGroup({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -377,6 +421,8 @@ function AgentCardView({ agent }: { agent: Agent }) {
             <span style={{ fontSize: 12, color: C.text3, fontFamily: MONO }}>v{card.version}</span>
           )}
         </div>
+
+        {!isDraft && <ReputationLine reputation={agent.reputation} />}
 
         {/* Description */}
         {card ? (

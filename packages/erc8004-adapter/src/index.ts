@@ -11,7 +11,11 @@ export {
   agentCardFeedUrl,
 } from './agent-card';
 
-export { IdentityModule } from './modules/identity';
+export {
+  IdentityModule,
+  AGENT_WALLET_SET_TYPES,
+  MAX_AGENT_WALLET_DEADLINE_SECONDS,
+} from './modules/identity';
 export {
   setAgentSplitter,
   getAgentSplitter,
@@ -22,9 +26,12 @@ export {
 export type { AgentSplitterLink } from './splitter-link';
 export { ReputationModule } from './modules/reputation';
 export { AggregateModule } from './modules/aggregate';
+export * from './modules/reviews';
+export { queryFilterChunked, DEFAULT_LOG_RANGE_MAX } from './utils/logs';
 
 export { IDENTITY_REGISTRY_ABI } from './abis/IdentityRegistry';
 export { REPUTATION_REGISTRY_ABI } from './abis/ReputationRegistry';
+export { REVENUE_SPLITTER_ABI, SPLITTER_FACTORY_ABI } from './abis/Splitter';
 
 export {
   DEFAULT_BEE_API_URL,
@@ -50,10 +57,15 @@ export type {
   AgentRegistration,
   RegisterResult,
   PostFeedbackParams,
-  FeedbackAuth,
+  PostFeedbackResult,
   WalletAuth,
   FeedbackResult,
+  FeedbackEntry,
   ReputationSummary,
   ReputationScore,
+  LogQueryOptions,
+  NewFeedbackEvent,
+  FeedbackRevokedEvent,
+  ResponseAppendedEvent,
   SwarmUploadResult,
 } from './types';
