@@ -1,4 +1,5 @@
 import type { Candidate } from '../../agent-identity';
+import type { RegisterAgentWallet } from '../../agent-wallet';
 
 export interface RegisterAgentArgs {
   name: string;
@@ -21,6 +22,9 @@ export interface RegisterAgentArgs {
   dryRun?: boolean;
   // Skip splitter + link entirely (identity-only registration).
   skipSplitter?: boolean;
+  // Pre-signed AgentWalletSet consent from the seller (from a previous call's consentRequest),
+  // when the seller is not the NFT owner and AGENT_PAYMENT_PK is not set. Valid ≤ 5 minutes.
+  agentWalletConsent?: { deadline: number; signature: string };
 }
 
 /**
@@ -111,6 +115,7 @@ export interface RegisterAgentResult {
   identity: RegisterAgentIdentity;
   splitter: RegisterAgentSplitter;
   link: RegisterAgentLink;
+  agentWallet: RegisterAgentWallet;
   warnings: string[];
   message: string;
 }

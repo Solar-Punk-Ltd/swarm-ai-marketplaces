@@ -12,6 +12,7 @@ interface ImportMetaEnv {
   readonly VITE_SWARM_GATEWAY_URL?: string;
   readonly VITE_SHOW_DEMO_FLOW?: string;
   readonly VITE_DEMO_FLOW_BASE_URL?: string;
+  readonly VITE_MARKETPLACE_SERVICE_URL?: string;
 }
 
 interface ImportMeta {

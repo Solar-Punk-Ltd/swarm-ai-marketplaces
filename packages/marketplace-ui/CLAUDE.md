@@ -343,6 +343,29 @@ The fallback is not a reason to leave the image broken. Re-uploading the identic
 reproduce that exact reference and fix every published card at once, since Swarm addresses by
 content.
 
+## Reputation
+
+A seller card shows its agent's reputation from the **marketplace-service indexer**
+(`GET /v1/sellers/:agentId/reputation`, `VITE_MARKETPLACE_SERVICE_URL`): `★ 87/100 · 3 reviews`
+next to the agent badge, and in the details ledger the score with its scale, counted vs anchored
+(and still-verifying) reviews, last review, seller responses and the indexer's checkpoint block.
+Design: repo-root `CLAUDE.md` and `documents/data-enriched-marketplaces.md` Step 9.
+
+- **Display only, never an authority.** The indexer is a cache; buyer agents verify it against the
+  chain before paying (`swarm-market-mcp` `get_seller_reputation` with `verify`). This page does not
+  re-verify — it labels the score as counting only PoP-valid reviews and leaves it there.
+- **Verified agents only**, the same rule as avatars: an unverified or disputed link is a claim,
+  and a score on it would lend the claim the indexer's authority (such reviews also fail PoP's
+  seller check).
+- **The context fetches it** (`lib/reputation.ts`, `refreshReputations`) — once a minute, or as soon
+  as the set of verified agents changes. It is our service, not the RPC, but the single-fetch-owner
+  rule holds all the same.
+- **Degrades to nothing.** No URL, a 404, a timeout or a CORS block renders no badge; a `503`
+  (indexer still on its first pass) renders "reviews syncing…". A failed read keeps the previous
+  answer for that agent. It never blocks balances or shows an error.
+- The service must allow this dashboard's origin: `CORS_ALLOWED_ORIGINS` on marketplace-service
+  (default `*`). If it doesn't, every read is blocked and the feature silently shows nothing.
+
 ## Routing
 
 `hooks/useRoute.ts` is the whole router — three pages, real paths, no dependency. It exports

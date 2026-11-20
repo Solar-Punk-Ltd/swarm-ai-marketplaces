@@ -43,6 +43,20 @@ Consequences for `src/components/AgentList.tsx`:
 - `FeedPill` should use `uri` (the on-chain agentURI — the Agent Card's own Swarm feed URL) directly, not `swarmEndpoint`
 - The `ownerVar` and `browseUrl` already use `swarm-ai-catalog` after the fix above
 
+## Reputation
+
+Each agent card shows `★ 87/100 · 3 reviews · last <date>` from the marketplace-service indexer
+(`GET /v1/sellers/:agentId/reputation`, `VITE_MARKETPLACE_SERVICE_URL`, `src/reputation.ts`). Display
+only — the indexer is a cache that buyer agents re-verify against the chain; the tooltip says only
+reviews anchored on-chain with a valid Proof-of-Purchase count. Fetched once per agent load in
+`AgentsContext`, independent of the card fetch. Any failure (no URL, unreachable, CORS) shows
+nothing; a `503` shows "Reviews syncing…". No splitter-link check is needed here: the card is the
+agent itself, and the indexer's count already applies PoP's seller check.
+
+`vite.config.ts` aliases `@solarpunk/swarm-catalog` to its source as well as the adapter: the
+adapter's reviews module imports `PURCHASE_INTENT_TYPES` from it, and Rollup cannot see that export
+through the package's CommonJS `dist`.
+
 ## Everything else
 
 The existing agent discovery, card rendering, and AddAgentModal are complete. The `AddAgentModal` does not yet have a `catalogFeedOwner` field — that is added via the `erc8004-adapter` CLI, not the dashboard UI.

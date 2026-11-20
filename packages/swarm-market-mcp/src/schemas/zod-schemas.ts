@@ -116,6 +116,13 @@ export const registerAgentSchema = z.object({
   dryRun: z.boolean().optional(),
   // Identity-only registration: skip the splitter and the link.
   skipSplitter: z.boolean().optional(),
+  // Pre-signed AgentWalletSet consent from the seller (see register_agent's consentRequest).
+  agentWalletConsent: z
+    .object({
+      deadline: z.number().int().positive(),
+      signature: z.string().regex(/^0x[0-9a-fA-F]+$/),
+    })
+    .optional(),
 });
 
 export const findAgentsByMetadataSchema = z

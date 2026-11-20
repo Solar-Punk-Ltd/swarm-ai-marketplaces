@@ -125,6 +125,17 @@ error response: a text-only error would discard the token id the caller just pai
 post-mint card write yields `identity.status: "incomplete"` with `agentId` populated and an
 explanatory `warnings[]` entry; the next call repairs it.
 
+**Agent wallet (step G, never fatal).** Proof-of-Purchase only counts a sale if the splitter's
+seller is the agent's NFT owner or its ERC-8004 agent wallet (root `CLAUDE.md`, PoP rule 2). When
+the seller (`seller` / `AGENT_PAYMENT_ADDRESS`) is not the `PRIVATE_KEY` owner, `register_agent`
+registers it with `setAgentWallet` (`src/agent-wallet.ts`). The registry requires the **seller's own**
+EIP-712 consent (`AgentWalletSet`, domain `ERC8004IdentityRegistry` v1, deadline ≤ 5 min), taken from
+a pre-signed `agentWalletConsent` argument or signed with `AGENT_PAYMENT_PK`. With neither, the
+result is `agentWallet.status: "needs-consent"` plus `consentRequest` (the typed data to sign) and a
+warning; sign it with the seller wallet and call again within 5 minutes. Statuses: `not-needed`,
+`already-set`, `set`, `would-set`, `needs-consent`, `skipped`, `failed`. The registry clears the
+agent wallet when the NFT is transferred, so a re-run after a transfer sets it again.
+
 **Discovery failure suppresses the mint.** "Found nothing" and "could not look" are distinguished.
 A transient RPC or Swarm error returns an error rather than an NFT.
 
@@ -257,6 +268,7 @@ The tool throws if any priced item is missing its `actSeed` (the builder enforce
 | `ERC8004_CHAIN`            | Chain key for the ERC-8004 client (default `base-sepolia`)                          |
 | `SPLITTER_FACTORY_ADDRESS` | `SplitterFactory` address used to resolve a seller's splitter clone                 |
 | `AGENT_PAYMENT_ADDRESS`    | Seller whose clone becomes `payment[].payTo` in `build_catalog`                     |
+| `AGENT_PAYMENT_PK`         | Key of `AGENT_PAYMENT_ADDRESS`; signs the agent-wallet consent in `register_agent`  |
 | `PRIVATE_KEY`              | Signs `register_agent` and `link_split_contract`; must own the agent NFT            |
 | `BUYER_WALLET_PK`          | Buyer: signs purchases, review feeds, `giveFeedback` / `revokeFeedback` (needs gas) |
 | `PAYMENT_RPC_URL`          | Reads the payment token's EIP-712 domain at purchase time                           |

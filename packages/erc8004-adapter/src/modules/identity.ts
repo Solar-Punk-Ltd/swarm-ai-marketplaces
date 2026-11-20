@@ -3,13 +3,19 @@ import { IDENTITY_REGISTRY_ABI } from '../abis/IdentityRegistry';
 import type { RegisterResult, WalletAuth, MetadataEntry } from '../types';
 import { RECENT_BLOCK_COUNT } from '../constants';
 
-const WALLET_AUTH_TYPES = {
-  WalletAuth: [
+// What the registry's setAgentWallet verifies (ERC-8004 reference IdentityRegistry, domain
+// "ERC8004IdentityRegistry" v1 — confirmed against the Base Sepolia deployment's eip712Domain()).
+export const AGENT_WALLET_SET_TYPES = {
+  AgentWalletSet: [
     { name: 'agentId', type: 'uint256' },
-    { name: 'wallet', type: 'address' },
+    { name: 'newWallet', type: 'address' },
+    { name: 'owner', type: 'address' },
     { name: 'deadline', type: 'uint256' },
   ],
 };
+
+/** The registry rejects a deadline more than 5 minutes past the block it is mined in. */
+export const MAX_AGENT_WALLET_DEADLINE_SECONDS = 300;
 
 export class IdentityModule {
   private contract: Contract;
@@ -242,36 +248,54 @@ export class IdentityModule {
   }
 
   /**
-   * Signs an EIP-712 WalletAuth token from the new wallet, authorizing it to be
-   * registered as the agent wallet for `agentId`. Pass the returned `WalletAuth`
-   * to `setAgentWallet`.
+   * EIP-712 typed data the new wallet must sign to consent to becoming `agentId`'s agent wallet.
+   * Hand it to that wallet's own signer when its key is not available here (`signTypedData`), then
+   * pass the signature to `setAgentWallet`. The owner is part of the message: a transfer of the
+   * NFT invalidates the signature (and the registry clears the wallet on transfer).
+   */
+  agentWalletTypedData(agentId: bigint, newWallet: string, owner: string, deadline: number) {
+    return {
+      domain: this.buildDomain(),
+      types: AGENT_WALLET_SET_TYPES,
+      primaryType: 'AgentWalletSet' as const,
+      message: { agentId, newWallet, owner, deadline },
+    };
+  }
+
+  /**
+   * Signs the consent with the new wallet's own key. `ttlSeconds` is capped at the registry's
+   * 5-minute limit, so send `setAgentWallet` promptly after signing.
    *
    * @param agentId   The agent's NFT token ID.
-   * @param newWallet Signer representing the new hot wallet (must differ from the NFT owner).
-   * @param ttlSeconds Token validity in seconds (default 1 hour).
+   * @param newWallet Signer for the wallet being registered (e.g. the splitter's seller).
+   * @param owner     The agent NFT's current owner — the registry binds the signature to it.
    */
   async signAgentWalletAuth(
     agentId: bigint,
     newWallet: Signer,
-    ttlSeconds = 3600,
+    owner: string,
+    ttlSeconds = 240,
   ): Promise<WalletAuth> {
-    if (!newWallet.signTypedData) throw new Error('Signer required to sign WalletAuth');
+    if (!newWallet.signTypedData)
+      throw new Error('Signer required to sign the agent wallet consent');
 
     const walletAddress = await newWallet.getAddress();
-    const deadline = Math.floor(Date.now() / 1000) + ttlSeconds;
-
-    const signature = await newWallet.signTypedData(this.buildDomain(), WALLET_AUTH_TYPES, {
+    const deadline =
+      Math.floor(Date.now() / 1000) + Math.min(ttlSeconds, MAX_AGENT_WALLET_DEADLINE_SECONDS);
+    const { domain, types, message } = this.agentWalletTypedData(
       agentId,
-      wallet: walletAddress,
+      walletAddress,
+      owner,
       deadline,
-    });
+    );
+    const signature = await newWallet.signTypedData(domain, types, message);
 
-    return { agentId, wallet: walletAddress, deadline, signature };
+    return { agentId, wallet: walletAddress, owner, deadline, signature };
   }
 
   private buildDomain() {
     return {
-      name: 'ERC8004WalletAuth',
+      name: 'ERC8004IdentityRegistry',
       version: '1',
       chainId: this.chainId,
       verifyingContract: this.contract.target as string,

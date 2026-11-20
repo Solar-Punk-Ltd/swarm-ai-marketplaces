@@ -47,6 +47,9 @@ export interface PaymentConfig {
 export interface SplitterConfig {
   factoryAddress?: string;
   sellerAddress?: string;
+  // Key of sellerAddress, when available: lets register_agent sign the consent that registers the
+  // seller as the agent wallet (needed whenever the seller is not the NFT owner).
+  sellerPrivateKey?: string;
 }
 
 // Buyer-side reviews (submit_review / revoke_review / get_seller_reputation / list_purchases).
@@ -90,6 +93,7 @@ const config: Config = {
   splitter: {
     factoryAddress: process.env.SPLITTER_FACTORY_ADDRESS,
     sellerAddress: process.env.AGENT_PAYMENT_ADDRESS,
+    sellerPrivateKey: normalizeHexKey(process.env.AGENT_PAYMENT_PK),
   },
   review: {
     buyerDbPath: process.env.BUYER_DB_PATH || DEFAULT_BUYER_DB_PATH,

@@ -355,6 +355,24 @@
   flex-wrap: wrap;
 }
 
+/* Seller reputation on a card: one mono line, score in the text colour, the rest muted. */
+.reputation {
+  font-family: var(--mp-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.reputationScore {
+  color: var(--mp-text);
+  font-weight: 600;
+}
+
+.reputationMuted {
+  color: var(--mp-text-muted);
+}
+
 /* Small uppercase caption naming what a figure is (seller wallet vs. splitter revenue). */
 .balanceLabel {
   font-family: var(--mp-mono);

@@ -75,9 +75,10 @@ export interface PostFeedbackResult {
 // Off-chain authorization: new wallet signs this to consent to being registered as the agent wallet.
 export interface WalletAuth {
   agentId: bigint;
-  wallet: string; // new hot wallet address
-  deadline: number; // unix timestamp
-  signature: string; // EIP-712 sig from the new wallet
+  wallet: string; // the wallet being registered
+  owner: string; // agent NFT owner the consent is bound to
+  deadline: number; // unix timestamp, at most 5 minutes ahead (registry limit)
+  signature: string; // EIP-712 AgentWalletSet signature from `wallet`
 }
 
 export interface FeedbackResult {

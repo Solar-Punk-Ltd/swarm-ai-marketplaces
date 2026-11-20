@@ -13,6 +13,7 @@ import {
 } from '@solarpunk/erc8004-adapter';
 import { BatchManager } from './batches.js';
 import { loadConfig, type ServiceConfig } from './config.js';
+import { readOnlyCors } from './cors.js';
 import { Store } from './db.js';
 import { envelopesHandler } from './envelopes.js';
 import { IndexStore } from './index-store.js';
@@ -77,6 +78,11 @@ async function main(): Promise<void> {
 
   const app = express();
   app.use(express.json({ limit: '256kb' }));
+
+  // Browser dashboards read these two; the envelope endpoint stays server-to-server.
+  const cors = readOnlyCors(config.corsAllowedOrigins);
+  app.use('/v1/reviews/config', cors);
+  app.use('/v1/sellers', cors);
 
   app.get('/v1/reviews/config', reviewConfigHandler(publicReviewConfig(reviewConfig, config)));
   app.post(

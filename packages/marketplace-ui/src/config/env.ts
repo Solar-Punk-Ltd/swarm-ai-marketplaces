@@ -45,6 +45,12 @@ export interface AppConfig {
    */
   devconApiUrl?: string;
   /**
+   * marketplace-service base URL (e.g. `https://market.example`), whose indexer serves each
+   * seller's reputation. Undefined hides reputation — like agent labels, it is supplementary and
+   * must never block the dashboard. Stored without a trailing slash.
+   */
+  marketplaceServiceUrl?: string;
+  /**
    * ERC-8004 Identity Registry, when one is known for this chain. Undefined disables agent
    * labelling — the link is supplementary and must never block the dashboard.
    */
@@ -113,6 +119,18 @@ function parseDemoUrl(
     new URL(raw);
   } catch {
     problems.push(`${name} is not a valid URL: "${raw}"`);
+    return undefined;
+  }
+  return raw.replace(/\/+$/, '');
+}
+
+/** Optional marketplace-service URL; a malformed one fails loudly rather than silently hiding data. */
+function parseServiceUrl(raw: string | undefined, problems: string[]): string | undefined {
+  if (!raw) return undefined;
+  try {
+    new URL(raw);
+  } catch {
+    problems.push(`VITE_MARKETPLACE_SERVICE_URL is not a valid URL: "${raw}"`);
     return undefined;
   }
   return raw.replace(/\/+$/, '');
@@ -200,6 +218,8 @@ function parseConfig(): AppConfig {
     problems,
   );
 
+  const marketplaceServiceUrl = parseServiceUrl(env.VITE_MARKETPLACE_SERVICE_URL, problems);
+
   if (problems.length > 0) throw new ConfigError(problems);
 
   return {
@@ -213,6 +233,7 @@ function parseConfig(): AppConfig {
     showDemoFlow,
     demoFlowBaseUrl,
     devconApiUrl,
+    marketplaceServiceUrl,
     identityRegistry: parseRegistry(chainId, problems),
   };
 }

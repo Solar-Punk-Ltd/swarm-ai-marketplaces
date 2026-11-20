@@ -28,6 +28,8 @@ export interface ServiceConfig {
   // Per-seller review batch, bought on the seller's first review.
   reviewBatch: { sizeMb: number; ttlDays: number; retryAfterSeconds: number };
   dbPath: string;
+  // Origins allowed to read the GET endpoints from a browser; ['*'] = any (the data is public).
+  corsAllowedOrigins: string[];
   indexer: {
     enabled: boolean;
     // First block to ingest. For a complete census use the ReputationRegistry deploy block.
@@ -143,6 +145,7 @@ export function loadConfig(): ServiceConfig {
       retryAfterSeconds: int('BATCH_RETRY_AFTER_SECONDS', 60),
     },
     dbPath: process.env.DB_PATH ?? './data/marketplace.db',
+    corsAllowedOrigins: list(process.env.CORS_ALLOWED_ORIGINS ?? '*'),
     indexer: {
       enabled: (process.env.INDEXER_ENABLED ?? 'true') !== 'false',
       startBlock: process.env.INDEXER_START_BLOCK ? int('INDEXER_START_BLOCK', 0) : undefined,

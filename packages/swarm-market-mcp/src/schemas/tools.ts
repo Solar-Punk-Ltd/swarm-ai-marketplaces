@@ -379,8 +379,11 @@ export const SwarmMarketToolsSchema = [
       'RevenueSplitter clone exists and binds it to the agent under the agent_splitter ' +
       'registry key. Replaces create_agent and create_split_contract. Reports per-step ' +
       'outcomes in identity/splitter/link: identity failures are fatal, splitter failures are ' +
-      'reported, link failures are always non-fatal. Set dryRun true to report what would ' +
-      'happen without spending gas.',
+      'reported, link failures are always non-fatal. When the seller is not the NFT owner, it ' +
+      'is registered as the ERC-8004 agent wallet (signed by AGENT_PAYMENT_PK, or by a ' +
+      'pre-signed agentWalletConsent; otherwise agentWallet.consentRequest says what to sign) — ' +
+      'without it, reviews of the agent fail Proof-of-Purchase. Set dryRun true to report what ' +
+      'would happen without spending gas.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -437,6 +440,18 @@ export const SwarmMarketToolsSchema = [
           type: 'boolean',
           description: 'Identity-only registration: skip the splitter and the link entirely.',
         },
+        agentWalletConsent: {
+          type: 'object',
+          description:
+            "The seller's signed AgentWalletSet consent (from a previous call's " +
+            'agentWallet.consentRequest), needed when the seller is not the NFT owner and ' +
+            'AGENT_PAYMENT_PK is unset. Valid for at most 5 minutes.',
+          properties: {
+            deadline: { type: 'number' },
+            signature: { type: 'string' },
+          },
+          required: ['deadline', 'signature'],
+        },
       },
       required: ['name', 'description'],
     },
@@ -447,6 +462,12 @@ export const SwarmMarketToolsSchema = [
         signer: { type: 'string' },
         chain: { type: 'string' },
         dryRun: { type: 'boolean' },
+        agentWallet: {
+          type: 'object',
+          description:
+            'not-needed | already-set | set | would-set | needs-consent | skipped | failed. ' +
+            'needs-consent carries consentRequest: EIP-712 typed data the seller must sign.',
+        },
         identity: {
           type: 'object',
           properties: {

@@ -11,7 +11,11 @@ export {
   agentCardFeedUrl,
 } from './agent-card';
 
-export { IdentityModule } from './modules/identity';
+export {
+  IdentityModule,
+  AGENT_WALLET_SET_TYPES,
+  MAX_AGENT_WALLET_DEADLINE_SECONDS,
+} from './modules/identity';
 export {
   setAgentSplitter,
   getAgentSplitter,

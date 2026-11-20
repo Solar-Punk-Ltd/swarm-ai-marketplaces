@@ -1,6 +1,6 @@
 # Marketplace flow — end to end (incl. reputation)
 
-Covers setup, seller onboarding, discovery, purchase, payout, review and indexing. All steps are built except the optional UI (Phase 6).
+Covers setup, seller onboarding, discovery, purchase, payout, review and indexing. All steps are built, including the optional UI (Phase 6): `marketplace-ui` shows reputation on seller cards and `erc8004-dashboard` on agent cards.
 
 ```mermaid
 sequenceDiagram
@@ -22,6 +22,9 @@ sequenceDiagram
     SA->>CH: IdentityRegistry.register(agentURI) → agentId
     SA->>CH: SplitterFactory.createSplitter(seller) → splitter clone
     SA->>CH: setMetadata(agentId, "agent_splitter", splitter)
+    opt Seller (payout address) is not the NFT owner
+        SA->>CH: setAgentWallet(agentId, seller, deadline, sig)<br/>sig = seller's EIP-712 AgentWalletSet consent (AGENT_PAYMENT_PK or pre-signed, ≤ 5 min)<br/>— PoP counts a sale only if the splitter's seller is the owner or agent wallet
+    end
     SA->>SW: build_catalog: items (ACT-protected), Mantaray, catalog feed (payTo = splitter)
 
     Note over OP,CH: 3. Discovery + reputation check (comparison phase)
@@ -97,6 +100,7 @@ sequenceDiagram
         OP->>OP: verifyReview + verifyPoP → valid / invalid<br/>(missing content retried, RPC errors never a verdict)
     end
     OP->>OP: On GET reputation: score at read time — anchored, non-revoked, valid (Rule C)<br/>· one per purchase (rule 4: earliest non-revoked from the payer)
+    Note over OP: Dashboards read GET /v1/sellers/:agentId/reputation via CORS (CORS_ALLOWED_ORIGINS):<br/>marketplace-ui on seller cards (every minute, verified agents only),<br/>erc8004-dashboard on agent cards — display only
 
     Note over OP,CH: 8. Revocation (optional) — revoke_review
     BA->>CH: revokeFeedback(agentId, feedbackIndex)

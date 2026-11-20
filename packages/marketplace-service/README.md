@@ -39,6 +39,10 @@ non-revoked review already claims the purchase → seller batch usable (else `50
 batch_unavailable` + `Retry-After`) → per-purchase envelope quota → `bee.createEnvelope` per
 address. Errors use the shared `ApiError` envelope (`src/errors.ts`).
 
+**CORS.** The two GET endpoints send CORS headers for `CORS_ALLOWED_ORIGINS` (default `*` — the
+data is public), so browser dashboards such as `marketplace-ui` can read them. `POST
+/v1/reviews/envelopes` never does: buyer tools call it server-side.
+
 ## Indexer
 
 A cache over chain events and Swarm content, never an authority (design Step 9). Each tick
