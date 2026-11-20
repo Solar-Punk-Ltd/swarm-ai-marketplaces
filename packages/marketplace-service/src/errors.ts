@@ -12,6 +12,7 @@ export type ErrorCode =
   | 'pop_already_claimed'
   | 'envelope_quota_exceeded'
   | 'batch_unavailable'
+  | 'indexer_unavailable'
   | 'internal_error';
 
 interface CodeSpec {
@@ -31,6 +32,8 @@ const CODES: Record<ErrorCode, CodeSpec> = {
   envelope_quota_exceeded: { status: 429, retryable: false },
   // The seller's batch is being bought; retry after details.retryAfter seconds.
   batch_unavailable: { status: 503, retryable: true },
+  // The indexer has no checkpoint yet; buyers fall back to reading the chain.
+  indexer_unavailable: { status: 503, retryable: true },
   internal_error: { status: 500, retryable: true },
 };
 

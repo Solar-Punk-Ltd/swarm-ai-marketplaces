@@ -1,7 +1,7 @@
 import type { Contract, ContractEventName, EventLog, Log } from 'ethers';
 
-/** Default `eth_getLogs` page size. Most public RPCs cap a single query well below 10k blocks. */
-export const DEFAULT_LOG_RANGE_MAX = 2_000;
+/** Default `eth_getLogs` page size. The public Base Sepolia RPC caps a query at 200 blocks. */
+export const DEFAULT_LOG_RANGE_MAX = 200;
 
 /**
  * `contract.queryFilter` paged in `chunkSize`-block windows.

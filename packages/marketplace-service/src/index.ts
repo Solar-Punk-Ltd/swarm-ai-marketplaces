@@ -2,17 +2,22 @@ import express from 'express';
 import { Bee } from '@ethersphere/bee-js';
 import { Contract, JsonRpcProvider, getAddress } from 'ethers';
 import {
+  RECENT_BLOCK_COUNT,
   SPLITTER_FACTORY_ABI,
   createERC8004Client,
   createPoPChainReader,
   findAnchoredPurchase,
   verifyPoP,
+  verifyReview,
   type ReviewMarketplaceConfig,
 } from '@solarpunk/erc8004-adapter';
 import { BatchManager } from './batches.js';
 import { loadConfig, type ServiceConfig } from './config.js';
 import { Store } from './db.js';
 import { envelopesHandler } from './envelopes.js';
+import { IndexStore } from './index-store.js';
+import { ReviewIndexer } from './indexer.js';
+import { reputationHandler } from './reputation.js';
 import { publicReviewConfig, reviewConfigHandler } from './reviews-config.js';
 
 // Without SPLITTER_TERMS, accept the terms the factory currently stamps on new clones.
@@ -89,6 +94,47 @@ async function main(): Promise<void> {
         ),
     }),
   );
+
+  if (config.indexer.enabled) {
+    const indexStore = new IndexStore(config.dbPath);
+    let startBlock = config.indexer.startBlock;
+    if (startBlock === undefined && indexStore.getCheckpoint() === null) {
+      startBlock = Math.max(0, (await provider.getBlockNumber()) - RECENT_BLOCK_COUNT);
+      console.warn(
+        `INDEXER_START_BLOCK is unset — indexing from block ${startBlock}. Reviews anchored earlier ` +
+          'are not indexed, so buyer census checks will flag this indexer as incomplete. Set it to ' +
+          'the ReputationRegistry deploy block for a complete index.',
+      );
+    }
+    const reputation = erc8004.reputation;
+    const indexer = new ReviewIndexer(
+      {
+        store: indexStore,
+        latestBlock: () => provider.getBlockNumber(),
+        getNewFeedbackEvents: (agentId, options) =>
+          reputation.getNewFeedbackEvents(agentId, options),
+        getFeedbackRevokedEvents: (agentId, options) =>
+          reputation.getFeedbackRevokedEvents(agentId, options),
+        getResponseAppendedEvents: (agentId, options) =>
+          reputation.getResponseAppendedEvents(agentId, options),
+        verifyReview: (entry) => verifyReview(entry, { bee, config: reviewConfig }),
+        verifyPoP: (input) => verifyPoP(input, reader, reviewConfig),
+        blockTimestamp: async (block) => (await provider.getBlock(block))?.timestamp ?? 0,
+        log: (message) => console.log(`[indexer] ${message}`),
+      },
+      {
+        startBlock: startBlock ?? 0,
+        confirmations: config.indexer.confirmations,
+        maxBlocksPerTick: config.indexer.maxBlocksPerTick,
+        chunkSize: config.logRangeMax,
+        verifyBatch: config.indexer.verifyBatch,
+        maxAttempts: config.indexer.maxAttempts,
+        pollMs: config.indexer.pollSeconds * 1000,
+      },
+    );
+    app.get('/v1/sellers/:agentId/reputation', reputationHandler(indexStore, config.score));
+    indexer.start();
+  }
 
   app.listen(config.port, () => {
     console.log(`Marketplace service listening on port ${config.port}`);

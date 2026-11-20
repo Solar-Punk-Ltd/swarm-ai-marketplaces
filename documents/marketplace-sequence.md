@@ -1,6 +1,6 @@
 # Marketplace flow — end to end (incl. reputation)
 
-Covers setup, seller onboarding, discovery, purchase, payout, review and indexing. Steps marked _(planned)_ are specified in `CLAUDE.md` but not built yet.
+Covers setup, seller onboarding, discovery, purchase, payout, review and indexing. All steps are built except the optional UI (Phase 6).
 
 ```mermaid
 sequenceDiagram
@@ -26,8 +26,13 @@ sequenceDiagram
 
     Note over OP,CH: 3. Discovery + reputation check (comparison phase)
     BA->>CH: Query MetadataSet events (findAgentsWithMetadata, e.g. swarm_ai_capable) → candidate agents
-    BA->>OP: GET /v1/sellers/:agentId/reputation (planned — until then get_seller_reputation reads the chain)
-    OP-->>BA: { score, count, popValidCount, recency, checkpoint }
+    BA->>OP: GET /v1/sellers/:agentId/reputation (indexer · without it get_seller_reputation reads the chain)
+    alt Indexer has a checkpoint
+        OP-->>BA: { score, count, popValidCount, pendingCount, recency,<br/>checkpoint, popValidClients, responseCount }
+    else First pass not done (or indexer disabled)
+        OP-->>BA: 503 indexer_unavailable (or 404)
+        BA->>CH: get_seller_reputation reads the chain itself
+    end
     opt verify = true (commitment phase)
         BA->>CH: Census at checkpoint.block (archive): getClients + readAllFeedback<br/>(non-revoked) = count? · short log scan checkpoint → latest
         BA->>SW: Fetch reviews via feedbackURI (swarm-feed://owner/topic/index)
@@ -84,10 +89,14 @@ sequenceDiagram
     BA->>CH: ReputationRegistry.giveFeedback(agentId, value, …,<br/>swarm-feed://owner/topic/index, feedbackHash)
     CH-->>BA: NewFeedback(agentId, client, feedbackIndex)
 
-    Note over OP,CH: 7. Indexing (planned)
-    CH-->>OP: NewFeedback / FeedbackRevoked / ResponseAppended events
-    OP->>SW: Fetch review via feedbackURI
-    OP->>OP: verifyReview + verifyPoP (Rule C) · one review per purchase<br/>(rule 4: earliest non-revoked from the payer)<br/>→ count, popValidCount, score, PoP-valid client set
+    Note over OP,CH: 7. Indexing (marketplace-service indexer, behind head by confirmations)
+    loop Every tick
+        CH-->>OP: Ingest: NewFeedback / FeedbackRevoked / ResponseAppended (all agents)<br/>checkpoint → head − confirmations, paged by LOG_RANGE_MAX
+        OP->>OP: Store events + new checkpoint (one transaction)
+        OP->>SW: Verify pending reviews once: fetch via feedbackURI
+        OP->>OP: verifyReview + verifyPoP → valid / invalid<br/>(missing content retried, RPC errors never a verdict)
+    end
+    OP->>OP: On GET reputation: score at read time — anchored, non-revoked, valid (Rule C)<br/>· one per purchase (rule 4: earliest non-revoked from the payer)
 
     Note over OP,CH: 8. Revocation (optional) — revoke_review
     BA->>CH: revokeFeedback(agentId, feedbackIndex)

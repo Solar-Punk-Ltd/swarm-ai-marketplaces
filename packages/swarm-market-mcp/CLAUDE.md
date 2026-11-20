@@ -264,7 +264,7 @@ The tool throws if any priced item is missing its `actSeed` (the builder enforce
 | `BUYER_DB_PATH`            | Buyer purchase + review store, default `./data/buyer.db`                            |
 | `MARKETPLACE_SERVICE_URL`  | Marketplace backend: review config, envelopes, (later) indexer                      |
 | `ARCHIVE_RPC_URL`          | Archive node for PoP's past-state reads; falls back to `RPC_URL`                    |
-| `LOG_RANGE_MAX`            | `eth_getLogs` page size (provider block-range cap), default 2000                    |
+| `LOG_RANGE_MAX`            | `eth_getLogs` page size (provider block-range cap), default 200                     |
 
 ## Package skeleton (match `swarm-mcp`)
 

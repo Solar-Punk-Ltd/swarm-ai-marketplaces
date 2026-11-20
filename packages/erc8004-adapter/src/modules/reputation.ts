@@ -195,7 +195,7 @@ export class ReputationModule {
   }
 
   async getNewFeedbackEvents(
-    agentId: bigint,
+    agentId: bigint | null, // null = every agent (indexers)
     options: LogQueryOptions & { clientAddress?: string },
   ): Promise<NewFeedbackEvent[]> {
     const filter = this.contract.filters.NewFeedback(agentId, options.clientAddress ?? null);
@@ -219,7 +219,7 @@ export class ReputationModule {
   }
 
   async getFeedbackRevokedEvents(
-    agentId: bigint,
+    agentId: bigint | null, // null = every agent (indexers)
     options: LogQueryOptions & { clientAddress?: string },
   ): Promise<FeedbackRevokedEvent[]> {
     const filter = this.contract.filters.FeedbackRevoked(agentId, options.clientAddress ?? null);
@@ -236,7 +236,7 @@ export class ReputationModule {
   }
 
   async getResponseAppendedEvents(
-    agentId: bigint,
+    agentId: bigint | null, // null = every agent (indexers)
     options: LogQueryOptions & { clientAddress?: string },
   ): Promise<ResponseAppendedEvent[]> {
     const filter = this.contract.filters.ResponseAppended(agentId, options.clientAddress ?? null);

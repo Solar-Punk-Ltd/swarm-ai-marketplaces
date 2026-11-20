@@ -7,7 +7,7 @@ export const CARD_UPLOAD_TIMEOUT_MS = 60_000;
 export const SCAN_TIMEOUT_MS = 60_000;
 export const TX_TIMEOUT_MS = 120_000;
 export const DEFAULT_BUYER_DB_PATH = './data/buyer.db';
-export const DEFAULT_LOG_RANGE_MAX = 2_000;
+export const DEFAULT_LOG_RANGE_MAX = 200; // public Base Sepolia RPC caps eth_getLogs at 200 blocks
 export const MARKETPLACE_TIMEOUT_MS = 30_000;
 // Longest submit_review waits in-call for a seller's new review batch before returning
 // batch_unavailable (the call is resumable, so the agent can simply retry later).

@@ -28,6 +28,17 @@ export interface ServiceConfig {
   // Per-seller review batch, bought on the seller's first review.
   reviewBatch: { sizeMb: number; ttlDays: number; retryAfterSeconds: number };
   dbPath: string;
+  indexer: {
+    enabled: boolean;
+    // First block to ingest. For a complete census use the ReputationRegistry deploy block.
+    // Unset → head − RECENT_BLOCK_COUNT on first start (older reviews are then not indexed).
+    startBlock?: number;
+    confirmations: number;
+    maxBlocksPerTick: number;
+    verifyBatch: number;
+    maxAttempts: number;
+    pollSeconds: number;
+  };
 }
 
 function required(name: string): string {
@@ -124,7 +135,7 @@ export function loadConfig(): ServiceConfig {
     maxChunksPerRequest,
     maxEnvelopesPerPurchase: int('MAX_ENVELOPES_PER_PURCHASE', 4 * maxChunksPerRequest),
     requestMaxAgeSeconds: int('REQUEST_MAX_AGE_SECONDS', 300),
-    logRangeMax: int('LOG_RANGE_MAX', 2_000),
+    logRangeMax: int('LOG_RANGE_MAX', 200),
     beeApiUrl: process.env.BEE_API_URL ?? 'http://localhost:1633',
     reviewBatch: {
       sizeMb: int('REVIEW_BATCH_SIZE_MB', 1),
@@ -132,5 +143,14 @@ export function loadConfig(): ServiceConfig {
       retryAfterSeconds: int('BATCH_RETRY_AFTER_SECONDS', 60),
     },
     dbPath: process.env.DB_PATH ?? './data/marketplace.db',
+    indexer: {
+      enabled: (process.env.INDEXER_ENABLED ?? 'true') !== 'false',
+      startBlock: process.env.INDEXER_START_BLOCK ? int('INDEXER_START_BLOCK', 0) : undefined,
+      confirmations: int('INDEXER_CONFIRMATIONS', 5),
+      maxBlocksPerTick: int('INDEXER_MAX_BLOCKS_PER_TICK', 10 * int('LOG_RANGE_MAX', 200)),
+      verifyBatch: int('INDEXER_VERIFY_BATCH', 20),
+      maxAttempts: int('INDEXER_MAX_ATTEMPTS', 5),
+      pollSeconds: int('INDEXER_POLL_SECONDS', 15),
+    },
   };
 }

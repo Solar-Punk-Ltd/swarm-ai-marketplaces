@@ -35,7 +35,14 @@ function newFeedbackLog(feedbackIndex: bigint) {
     feedbackURI,
     feedbackHash,
   ]);
-  return { address: REPUTATION_REGISTRY, data, topics };
+  return {
+    address: REPUTATION_REGISTRY,
+    data,
+    topics,
+    blockNumber: 10,
+    index: 0,
+    transactionHash: '0xtx',
+  };
 }
 
 describe('postFeedback', () => {
@@ -162,5 +169,25 @@ describe('AggregateModule', () => {
     const score = await aggregate.calculateReputation(42n, clients, { minScore: 7, minCount: 3n });
     expect(getSummary).toHaveBeenCalledWith(42n, clients, '', '');
     expect(score).toEqual({ agentId: 42n, score: 8, feedbackCount: 3n, reliable: true });
+  });
+});
+
+describe('event queries', () => {
+  it('can scan every agent (null agentId) in pages', async () => {
+    const queryFilter = jest.fn(async () => [newFeedbackLog(4n)]);
+    const mod = moduleWith({ queryFilter });
+    const events = await mod.getNewFeedbackEvents(null, {
+      fromBlock: 0,
+      toBlock: 2_999,
+      chunkSize: 2_000,
+    });
+
+    expect(queryFilter).toHaveBeenCalledTimes(2);
+    const filter = (queryFilter.mock.calls[0] as unknown[])[0] as {
+      getTopicFilter(): Promise<unknown[]>;
+    };
+    const topics = await filter.getTopicFilter();
+    expect(topics.slice(1).every((t) => t == null)).toBe(true); // agentId / client not filtered
+    expect(events[0]).toMatchObject({ feedbackIndex: 4n, feedbackURI, feedbackHash });
   });
 });

@@ -13,17 +13,17 @@ Supporting docs:
 
 ## What already exists (do not rebuild)
 
-| Design step                             | Status  | Where                                                                                                                                                                                       |
-| --------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Step 2 — seller ERC-8004 identity       | Done    | `erc8004-adapter` `modules/identity.ts`; MCP `register_agent`                                                                                                                               |
-| Step 2 / 4b — per-seller split contract | Done    | `contracts/src/RevenueSplitter.sol`, `SplitterFactory.sol`, viem SDK `contracts/ts/index.ts`. Agent → splitter link: metadata key `agent_splitter` (`erc8004-adapter/src/splitter-link.ts`) |
-| Step 4 — x402 `payTo` = splitter        | Done    | `x402-swarm-server/src/intent.ts` (`payment_destination_untaxed`); MCP `build_catalog` via `swarm-market-mcp/src/splitter.ts` `resolvePayTo()`                                              |
-| Step 4 — purchase + seller-side record  | Done    | `x402-swarm-server/src/purchase.ts`, `db.ts` (`purchases`: consumer, item, tx_hash, settled_at, pay_to). `ActGrantResult.txHash` is returned to the buyer                                   |
-| ReputationRegistry wrapper (Phase 1)    | Done    | `erc8004-adapter/src/modules/reputation.ts` — content `feedbackHash`, no `FeedbackAuth`, `appendResponse` / `getClients` / `readAllFeedback`, paged event queries, `getSummary` fixed       |
-| Reviews module (Phase 2)                | Done    | `erc8004-adapter/src/modules/reviews/` — review file, feed writing, `verifyPoP`, `verifyReview`, `findAnchoredPurchase`, envelope-request signatures; Jest tests in `erc8004-adapter/test/` |
-| marketplace-service envelopes (Phase 3) | Done    | `marketplace-service` — `GET /v1/reviews/config`, `POST /v1/reviews/envelopes`, per-seller immutable batches (`batches.ts`), SQLite quota store; Jest tests                                 |
-| MCP buyer tools (Phase 4)               | Done    | `swarm-market-mcp`: purchase store (`buyer-store.ts`), `list_purchases`, `submit_review`, `revoke_review`, `get_seller_reputation` (chain fallback); Jest tests                             |
-| Indexer (Phase 5)                       | Missing | —                                                                                                                                                                                           |
+| Design step                             | Status | Where                                                                                                                                                                                       |
+| --------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Step 2 — seller ERC-8004 identity       | Done   | `erc8004-adapter` `modules/identity.ts`; MCP `register_agent`                                                                                                                               |
+| Step 2 / 4b — per-seller split contract | Done   | `contracts/src/RevenueSplitter.sol`, `SplitterFactory.sol`, viem SDK `contracts/ts/index.ts`. Agent → splitter link: metadata key `agent_splitter` (`erc8004-adapter/src/splitter-link.ts`) |
+| Step 4 — x402 `payTo` = splitter        | Done   | `x402-swarm-server/src/intent.ts` (`payment_destination_untaxed`); MCP `build_catalog` via `swarm-market-mcp/src/splitter.ts` `resolvePayTo()`                                              |
+| Step 4 — purchase + seller-side record  | Done   | `x402-swarm-server/src/purchase.ts`, `db.ts` (`purchases`: consumer, item, tx_hash, settled_at, pay_to). `ActGrantResult.txHash` is returned to the buyer                                   |
+| ReputationRegistry wrapper (Phase 1)    | Done   | `erc8004-adapter/src/modules/reputation.ts` — content `feedbackHash`, no `FeedbackAuth`, `appendResponse` / `getClients` / `readAllFeedback`, paged event queries, `getSummary` fixed       |
+| Reviews module (Phase 2)                | Done   | `erc8004-adapter/src/modules/reviews/` — review file, feed writing, `verifyPoP`, `verifyReview`, `findAnchoredPurchase`, envelope-request signatures; Jest tests in `erc8004-adapter/test/` |
+| marketplace-service envelopes (Phase 3) | Done   | `marketplace-service` — `GET /v1/reviews/config`, `POST /v1/reviews/envelopes`, per-seller immutable batches (`batches.ts`), SQLite quota store; Jest tests                                 |
+| MCP buyer tools (Phase 4)               | Done   | `swarm-market-mcp`: purchase store (`buyer-store.ts`), `list_purchases`, `submit_review`, `revoke_review`, `get_seller_reputation` (chain fallback); Jest tests                             |
+| Indexer (Phase 5)                       | Done   | `marketplace-service`: `indexer.ts` (ingest + verify), `index-store.ts`, `GET /v1/sellers/:agentId/reputation` (`reputation.ts`); Jest tests                                                |
 
 ## Settled design decisions
 
