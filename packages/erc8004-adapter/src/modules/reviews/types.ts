@@ -64,6 +64,7 @@ export type PoPFailureReason =
   | 'splitter_unlinked'
   | 'splitter_not_factory_clone'
   | 'splitter_terms_mismatch'
+  | 'splitter_seller_mismatch'
   | 'asset_not_accepted'
   | 'below_value_floor'
   | 'intent_bad_signature'

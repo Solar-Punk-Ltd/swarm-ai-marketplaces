@@ -57,6 +57,15 @@ export interface PoPChainReader {
   /** Clone terms, or null when `address` is not a splitter (calls revert / no code). */
   getSplitterInfo(address: string): Promise<SplitterInfo | null>;
   splitterOf(factory: string, seller: string): Promise<string>;
+  /**
+   * Addresses entitled to be the agent's splitter seller, as they stood at the end of block
+   * `blockNumber`: the NFT owner and the registered agent wallet (null when unset). Null overall
+   * when the agent did not exist yet.
+   */
+  getAgentPayees(
+    agentId: bigint,
+    blockNumber: number,
+  ): Promise<{ owner: string; agentWallet: string | null } | null>;
 }
 
 /**
@@ -119,6 +128,18 @@ export function createPoPChainReader(params: {
       const contract = new Contract(factory, SPLITTER_FACTORY_ABI, params.provider);
       return (await contract.splitterOf(seller)) as string;
     },
+
+    async getAgentPayees(agentId, blockNumber) {
+      const overrides = { blockTag: blockNumber };
+      let owner: string;
+      try {
+        owner = (await identityArchive.ownerOf(agentId, overrides)) as string;
+      } catch {
+        return null; // not minted yet at that block
+      }
+      const wallet = (await identityArchive.getAgentWallet(agentId, overrides)) as string;
+      return { owner, agentWallet: wallet === ZeroAddress ? null : wallet };
+    },
   };
 }
 
@@ -169,6 +190,16 @@ export async function verifyPoP(
     (t) => sameAddress(t.treasury, info.treasury) && t.taxBps === info.taxBps,
   );
   if (!termsOk) return fail('splitter_terms_mismatch');
+
+  // The clone must belong to this agent: its seller is the agent's NFT owner or registered agent
+  // wallet, as of the block before settlement. Otherwise an owner could link another agent's
+  // splitter and collect reviews for purchases made from that agent.
+  const payees = await reader.getAgentPayees(agentId, receipt.blockNumber - 1);
+  const sellerIsAgent =
+    payees !== null &&
+    (sameAddress(info.seller, payees.owner) ||
+      (payees.agentWallet !== null && sameAddress(info.seller, payees.agentWallet)));
+  if (!sellerIsAgent) return fail('splitter_seller_mismatch');
 
   // Rule 3 — accepted token, at or above the floor.
   if (!config.acceptedAssets.some((a) => sameAddress(a, transfer.token))) {

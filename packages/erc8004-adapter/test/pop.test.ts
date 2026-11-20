@@ -67,6 +67,7 @@ function reader(
     getAgentSplitterAt: async () => splitter,
     getSplitterInfo: async () => ({ seller: seller.address, treasury, taxBps: 500 }),
     splitterOf: async () => splitter,
+    getAgentPayees: async () => ({ owner: seller.address, agentWallet: null }),
     ...overrides,
   };
 }
@@ -190,6 +191,29 @@ describe('verifyPoP', () => {
     expect(
       await verifyPoP(input(pop), reader(pop, { getSplitterInfo: zeroTax }), config),
     ).toMatchObject({ reason: 'splitter_terms_mismatch' });
+  });
+
+  it('rejects a genuine clone that belongs to another agent’s seller', async () => {
+    const pop = await signedProofOfPayment();
+    const otherAgent = async () => ({ owner: Wallet.createRandom().address, agentWallet: null });
+    expect(
+      await verifyPoP(input(pop), reader(pop, { getAgentPayees: otherAgent }), config),
+    ).toMatchObject({ reason: 'splitter_seller_mismatch' });
+    expect(
+      await verifyPoP(input(pop), reader(pop, { getAgentPayees: async () => null }), config),
+    ).toMatchObject({ reason: 'splitter_seller_mismatch' });
+  });
+
+  it('accepts a seller registered as the agent wallet, read before the settlement block', async () => {
+    const pop = await signedProofOfPayment();
+    const getAgentPayees = jest.fn(async () => ({
+      owner: Wallet.createRandom().address,
+      agentWallet: seller.address,
+    }));
+    expect(await verifyPoP(input(pop), reader(pop, { getAgentPayees }), config)).toMatchObject({
+      valid: true,
+    });
+    expect(getAgentPayees).toHaveBeenCalledWith(AGENT_ID, BLOCK - 1);
   });
 
   it('rejects unaccepted tokens and payments below the floor', async () => {

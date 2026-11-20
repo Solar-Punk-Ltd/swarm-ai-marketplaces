@@ -5,3 +5,4 @@ export * from './feed';
 export * from './pop';
 export * from './verify';
 export * from './envelope-request';
+export * from './envelopes';

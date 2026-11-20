@@ -25,7 +25,7 @@ sequenceDiagram
     SA->>SW: build_catalog: items (ACT-protected), Mantaray, catalog feed (payTo = splitter)
 
     Note over OP,CH: 3. Discovery + reputation check (comparison phase)
-    BA->>CH: Query Registered / MetadataSet events → candidate agents
+    BA->>CH: Query MetadataSet events (findAgentsWithMetadata, e.g. swarm_ai_capable) → candidate agents
     BA->>OP: GET /v1/sellers/:agentId/reputation (planned)
     OP-->>BA: { score, count, popValidCount, recency, checkpoint }
     opt verify = true (commitment phase, planned)
@@ -54,7 +54,7 @@ sequenceDiagram
     Note over OP,CH: 5. Payout (any time, permissionless)
     Note over SA,CH: Either party may call. Every call pays BOTH shares: (1 − t) → seller, t → treasury
     SA->>CH: splitter.distribute(token) (e.g. right after a sale)
-    OP->>CH: factory.distributeAll(token, offset, limit) (paged sweep, repeated per page)
+    OP->>CH: Operator via marketplace-ui: factory.distributeAll(token, offset, limit)<br/>(paged sweep, repeated per page)
     CH-->>SA: (1 − t) seller share
     CH-->>OP: t tax → treasury
 

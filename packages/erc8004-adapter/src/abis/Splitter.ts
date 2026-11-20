@@ -7,4 +7,6 @@ export const REVENUE_SPLITTER_ABI = [
 
 export const SPLITTER_FACTORY_ABI = [
   'function splitterOf(address seller) external view returns (address)',
+  'function treasury() external view returns (address)',
+  'function defaultTaxBps() external view returns (uint16)',
 ] as const;
