@@ -31,6 +31,10 @@ import { getSplitContract } from './tools/get_split_contract';
 import type { GetSplitContractArgs } from './tools/get_split_contract/models';
 import { linkSplitContract } from './tools/link_split_contract';
 import type { LinkSplitContractArgs } from './tools/link_split_contract/models';
+import { listPurchases } from './tools/list_purchases';
+import { submitReview } from './tools/submit_review';
+import { revokeReview } from './tools/revoke_review';
+import { getSellerReputation } from './tools/get_seller_reputation';
 import {
   buildCatalogSchema,
   registerAgentSchema,
@@ -41,6 +45,10 @@ import {
   findAgentsByMetadataSchema,
   getAgentSchema,
   purchaseCatalogItemSchema,
+  listPurchasesSchema,
+  submitReviewSchema,
+  revokeReviewSchema,
+  getSellerReputationSchema,
 } from './schemas/zod-schemas';
 
 export class SwarmMarketMCPServer {
@@ -116,6 +124,22 @@ export class SwarmMarketMCPServer {
           case 'link_split_contract': {
             const validArgs = linkSplitContractSchema.parse(args);
             return linkSplitContract(validArgs as LinkSplitContractArgs);
+          }
+
+          case 'list_purchases': {
+            return listPurchases(listPurchasesSchema.parse(args ?? {}));
+          }
+
+          case 'submit_review': {
+            return submitReview(submitReviewSchema.parse(args), this.bee);
+          }
+
+          case 'revoke_review': {
+            return revokeReview(revokeReviewSchema.parse(args));
+          }
+
+          case 'get_seller_reputation': {
+            return getSellerReputation(getSellerReputationSchema.parse(args), this.bee);
           }
 
           default:

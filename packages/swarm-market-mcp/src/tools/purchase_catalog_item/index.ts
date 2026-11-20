@@ -13,7 +13,9 @@
  */
 import { Bee } from '@ethersphere/bee-js';
 import { ethers } from 'ethers';
+import type { PurchaseIntentProof } from '@solarpunk/erc8004-adapter';
 import config from '../../config';
+import { getBuyerStore } from '../../buyer-store';
 import {
   getErrorMessage,
   getResponseWithStructuredContent,
@@ -185,8 +187,9 @@ export async function purchaseCatalogItem(
   let intentSignature: string;
   let authSignature: string;
   let provider: ethers.JsonRpcProvider;
+  let intentDomain: PurchaseIntentProof['domain'];
   try {
-    const intentDomain = {
+    intentDomain = {
       name: domain.name,
       version: domain.version,
       chainId,
@@ -279,6 +282,32 @@ export async function purchaseCatalogItem(
     return getToolErrorResponse(`x402 settlement request failed: ${getErrorMessage(err)}`);
   }
 
+  // Keep the signed intent: it is mandatory review evidence and exists only now. A failure here
+  // must not fail the purchase (the buyer already paid), but the caller must hear about it.
+  let recordWarning: string | undefined;
+  if (result.txHash) {
+    try {
+      getBuyerStore(config.review.buyerDbPath).recordPurchase({
+        txHash: result.txHash,
+        itemId: args.itemId,
+        chainId: String(chainId),
+        payTo,
+        asset,
+        amount,
+        purchaseIntent: {
+          domain: intentDomain,
+          message: wireMessage as PurchaseIntentProof['message'],
+          signature: intentSignature,
+        },
+        settledAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      recordWarning = `Purchase not saved to the buyer store (${getErrorMessage(err)}); it cannot be reviewed.`;
+    }
+  } else {
+    recordWarning = 'Seller returned no txHash; the purchase cannot be reviewed.';
+  }
+
   return getResponseWithStructuredContent({
     itemId: args.itemId,
     granteePublicKey: grantee,
@@ -287,5 +316,7 @@ export async function purchaseCatalogItem(
     grantorPublicKey: result.grantorPublicKey,
     message: `Purchased ${args.itemId}; ACT grant issued to the buyer node.`,
     data: result.data,
+    recordedForReview: !recordWarning,
+    ...(recordWarning ? { warning: recordWarning } : {}),
   });
 }

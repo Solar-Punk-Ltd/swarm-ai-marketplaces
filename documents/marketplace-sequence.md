@@ -26,9 +26,9 @@ sequenceDiagram
 
     Note over OP,CH: 3. Discovery + reputation check (comparison phase)
     BA->>CH: Query MetadataSet events (findAgentsWithMetadata, e.g. swarm_ai_capable) → candidate agents
-    BA->>OP: GET /v1/sellers/:agentId/reputation (planned)
+    BA->>OP: GET /v1/sellers/:agentId/reputation (planned — until then get_seller_reputation reads the chain)
     OP-->>BA: { score, count, popValidCount, recency, checkpoint }
-    opt verify = true (commitment phase, planned)
+    opt verify = true (commitment phase)
         BA->>CH: Census at checkpoint.block (archive): getClients + readAllFeedback<br/>(non-revoked) = count? · short log scan checkpoint → latest
         BA->>SW: Fetch reviews via feedbackURI (swarm-feed://owner/topic/index)
         BA->>BA: verifyReview (hash, SOC owner, JSON = on-chain entry) + verifyPoP
@@ -48,7 +48,7 @@ sequenceDiagram
     SS->>SS: Record purchase (consumer, itemId, txHash, payTo)
     SS->>SW: ACT patchGrantees(buyer key) + update item state feed
     SS-->>BA: ActGrantResult { txHash, actHistoryRef, … }
-    BA->>BA: Store purchase + signed PurchaseIntent in buyer.db (planned)
+    BA->>BA: Store purchase + signed PurchaseIntent in buyer.db
     BA->>SW: Download content via ACT
 
     Note over OP,CH: 5. Payout (any time, permissionless)
@@ -58,7 +58,7 @@ sequenceDiagram
     CH-->>SA: (1 − t) seller share
     CH-->>OP: t tax → treasury
 
-    Note over OP,CH: 6. Review — submit_review (planned)
+    Note over OP,CH: 6. Review — submit_review (MCP, buyer) + envelope endpoint (marketplace-service)
     BA->>OP: GET /v1/reviews/config
     BA->>CH: Pre-flight verifyPoP (tx receipt, agent_splitter at settlement log<br/>via archive RPC, factory clone + terms, AuthorizationUsed)
     BA->>CH: findAnchoredPurchase (paged from settlement block)<br/>→ already_reviewed if a non-revoked review from the buyer cites it
@@ -70,8 +70,8 @@ sequenceDiagram
     OP->>CH: NewFeedback(agentId, clientAddress) from settlement block, paged<br/>→ drop revoked → fetch → txHash already anchored?
     OP->>OP: Refuse if requester ≠ payer or a non-revoked review from the payer is anchored<br/>· idempotent per buyer + txHash · cap maxEnvelopesPerPurchase
     alt Seller has no usable batch yet
-        OP->>SW: Buy immutable batch for seller (min depth, async)
-        OP-->>BA: batch_unavailable { retryAfter }
+        OP->>SW: buyStorage: immutable batch for seller<br/>(REVIEW_BATCH_SIZE_MB / REVIEW_BATCH_TTL_DAYS, async)
+        OP-->>BA: 503 batch_unavailable { retryAfter } + Retry-After header
         BA->>OP: Retry signed request after retryAfter
     end
     alt Envelopes issued
@@ -89,7 +89,7 @@ sequenceDiagram
     OP->>SW: Fetch review via feedbackURI
     OP->>OP: verifyReview + verifyPoP (Rule C) · one review per purchase<br/>(rule 4: earliest non-revoked from the payer)<br/>→ count, popValidCount, score, PoP-valid client set
 
-    Note over OP,CH: 8. Revocation (optional, planned)
+    Note over OP,CH: 8. Revocation (optional) — revoke_review
     BA->>CH: revokeFeedback(agentId, feedbackIndex)
     CH-->>OP: FeedbackRevoked → drop from score
     Note over BA,OP: Purchase is free again: submit_review with the same txHash<br/>publishes a replacement (edit), within maxEnvelopesPerPurchase

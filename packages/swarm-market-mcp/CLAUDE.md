@@ -199,6 +199,35 @@ export interface GetAgentArgs {
 
 **Return:** `{ agentId, agentURI, agentCard, catalog? }` where `catalog` is `{ owner, name?, description?, license?, items[] }`, or `null` (with `catalogNote`) if the card has no catalog service, or `{ owner, items: [], error }` if the feed is unreadable. `registrations[].agentId` (bigint) is stringified in the response.
 
+## Buyer review tools
+
+Spec: repo-root `CLAUDE.md` § "Review tools spec" (read it before changing these). All four run
+**locally with `BUYER_WALLET_PK`** — the key that paid is the only key that can review, and the
+marketplace never hosts these tools (it would hold reviewers' keys). Marketplace terms (registries,
+factory, score scale, limits) come from `GET /v1/reviews/config` on `MARKETPLACE_SERVICE_URL`;
+nothing marketplace-specific is hardcoded.
+
+Layout: each tool's logic is in `src/tools/<tool>/run.ts` with injected dependencies (tested in
+`test/`); `index.ts` only wires real Bee/RPC/marketplace clients. Review logic itself (review file,
+feed writing, `verifyPoP`, `verifyReview`, `findAnchoredPurchase`, envelope signing) lives in
+`@solarpunk/erc8004-adapter` — call it, don't reimplement it. Shared plumbing: `src/reviews.ts`.
+Errors are returned as `"<code>: <message>"` (codes from the spec, e.g. `pop_invalid`,
+`already_reviewed`, `envelope_quota_exceeded`, `batch_unavailable`, `insufficient_gas`).
+
+| Tool                    | Does                                                                                                                            | Notes                                                                                                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_purchases`        | Local purchases + review state (`unreviewedOnly`)                                                                               | Finds the `txHash` to review                                                                                                                                            |
+| `submit_review`         | PoP pre-flight → chain check (no live review) → build review (salt) → envelopes (or `postageBatchId`) → upload → `giveFeedback` | Resumable: after upload, `review_state = uploaded`; a re-run with the same review anchors without re-uploading. Waits up to `MAX_BATCH_WAIT_MS` for a new seller batch. |
+| `revoke_review`         | `revokeFeedback` by `txHash` or `agentId` + `feedbackIndex`                                                                     | Frees the purchase for a replacement review                                                                                                                             |
+| `get_seller_reputation` | Indexer answer, or (no indexer / `verify`) census + per-review `verifyReview` + `verifyPoP` from chain                          | Read-only, no wallet needed. Reviews before `fromBlock` are counted, not verified (`unscanned`).                                                                        |
+
+**Purchase store (`src/buyer-store.ts`).** `purchase_catalog_item` records every settled purchase
+with the **signed `PurchaseIntent`** in SQLite (`BUYER_DB_PATH`). The intent exists only at purchase
+time and is mandatory review evidence, so an unrecorded purchase can never be reviewed. A failed
+store write does not fail the purchase (the buyer already paid) but is reported
+(`recordedForReview: false` + `warning`). `review_state` is a resume hint — the chain is
+authoritative (`submit_review` always re-checks with `findAnchoredPurchase`).
+
 ## Caller responsibilities (NOT done by this tool)
 
 Two §12.2 steps are the caller's, exactly as in `swarm-catalog`:
@@ -218,17 +247,24 @@ The tool throws if any priced item is missing its `actSeed` (the builder enforce
 
 ## Environment variables
 
-| Variable                   | Purpose                                                                           |
-| -------------------------- | --------------------------------------------------------------------------------- |
-| `BEE_API_URL`              | Bee node endpoint, default `http://localhost:1633`                                |
-| `BEE_FEED_PK`              | Catalog feed signer private key (cold key)                                        |
-| `ITEM_STATE_FEED_PK`       | Per-item state feed signer private key (hot key) — MUST differ from `BEE_FEED_PK` |
-| `POSTAGE_BATCH_ID`         | Postage stamp batch ID for uploads                                                |
-| `RPC_URL`                  | EVM RPC endpoint for `get_agent` reads (default `https://sepolia.base.org`)       |
-| `ERC8004_CHAIN`            | Chain key for the ERC-8004 client (default `base-sepolia`)                        |
-| `SPLITTER_FACTORY_ADDRESS` | `SplitterFactory` address used to resolve a seller's splitter clone               |
-| `AGENT_PAYMENT_ADDRESS`    | Seller whose clone becomes `payment[].payTo` in `build_catalog`                   |
-| `PRIVATE_KEY`              | Signs `register_agent` and `link_split_contract`; must own the agent NFT          |
+| Variable                   | Purpose                                                                             |
+| -------------------------- | ----------------------------------------------------------------------------------- |
+| `BEE_API_URL`              | Bee node endpoint, default `http://localhost:1633`                                  |
+| `BEE_FEED_PK`              | Catalog feed signer private key (cold key)                                          |
+| `ITEM_STATE_FEED_PK`       | Per-item state feed signer private key (hot key) — MUST differ from `BEE_FEED_PK`   |
+| `POSTAGE_BATCH_ID`         | Postage stamp batch ID for uploads                                                  |
+| `RPC_URL`                  | EVM RPC endpoint for `get_agent` reads (default `https://sepolia.base.org`)         |
+| `ERC8004_CHAIN`            | Chain key for the ERC-8004 client (default `base-sepolia`)                          |
+| `SPLITTER_FACTORY_ADDRESS` | `SplitterFactory` address used to resolve a seller's splitter clone                 |
+| `AGENT_PAYMENT_ADDRESS`    | Seller whose clone becomes `payment[].payTo` in `build_catalog`                     |
+| `PRIVATE_KEY`              | Signs `register_agent` and `link_split_contract`; must own the agent NFT            |
+| `BUYER_WALLET_PK`          | Buyer: signs purchases, review feeds, `giveFeedback` / `revokeFeedback` (needs gas) |
+| `PAYMENT_RPC_URL`          | Reads the payment token's EIP-712 domain at purchase time                           |
+| `X402_ENDPOINT`            | Fallback x402 base URL for `purchase_catalog_item`                                  |
+| `BUYER_DB_PATH`            | Buyer purchase + review store, default `./data/buyer.db`                            |
+| `MARKETPLACE_SERVICE_URL`  | Marketplace backend: review config, envelopes, (later) indexer                      |
+| `ARCHIVE_RPC_URL`          | Archive node for PoP's past-state reads; falls back to `RPC_URL`                    |
+| `LOG_RANGE_MAX`            | `eth_getLogs` page size (provider block-range cap), default 2000                    |
 
 ## Package skeleton (match `swarm-mcp`)
 

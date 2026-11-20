@@ -22,11 +22,8 @@ Supporting docs:
 | ReputationRegistry wrapper (Phase 1)    | Done    | `erc8004-adapter/src/modules/reputation.ts` — content `feedbackHash`, no `FeedbackAuth`, `appendResponse` / `getClients` / `readAllFeedback`, paged event queries, `getSummary` fixed       |
 | Reviews module (Phase 2)                | Done    | `erc8004-adapter/src/modules/reviews/` — review file, feed writing, `verifyPoP`, `verifyReview`, `findAnchoredPurchase`, envelope-request signatures; Jest tests in `erc8004-adapter/test/` |
 | marketplace-service envelopes (Phase 3) | Done    | `marketplace-service` — `GET /v1/reviews/config`, `POST /v1/reviews/envelopes`, per-seller immutable batches (`batches.ts`), SQLite quota store; Jest tests                                 |
-| MCP buyer tools, indexer (Phases 4–5)   | Missing | —                                                                                                                                                                                           |
-
-Gaps in "done" parts that reputation depends on:
-
-- The buyer side does not persist purchases: MCP `purchase_catalog_item` returns `txHash` but stores nothing.
+| MCP buyer tools (Phase 4)               | Done    | `swarm-market-mcp`: purchase store (`buyer-store.ts`), `list_purchases`, `submit_review`, `revoke_review`, `get_seller_reputation` (chain fallback); Jest tests                             |
+| Indexer (Phase 5)                       | Missing | —                                                                                                                                                                                           |
 
 ## Settled design decisions
 
