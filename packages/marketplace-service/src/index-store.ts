@@ -4,6 +4,7 @@ import Database from 'better-sqlite3';
 import type {
   FeedbackRevokedEvent,
   NewFeedbackEvent,
+  ProofOfPayment,
   ResponseAppendedEvent,
 } from '@solarpunk/erc8004-adapter';
 
@@ -32,6 +33,8 @@ export interface IndexedReview {
   purchaseTx: string | null;
   itemId: string | null;
   blockTime: number | null;
+  comment: string | null; // from the verified review file; null until its content resolved
+  proofOfPayment: ProofOfPayment | null; // likewise, as the file states it
 }
 
 interface Row {
@@ -52,6 +55,8 @@ interface Row {
   purchase_tx: string | null;
   item_id: string | null;
   block_time: number | null;
+  comment: string | null;
+  proof_of_payment: string | null; // JSON
 }
 
 /**
@@ -88,6 +93,8 @@ export class IndexStore {
         purchase_tx    TEXT,
         item_id        TEXT,
         block_time     INTEGER,
+        comment        TEXT,
+        proof_of_payment TEXT,
         PRIMARY KEY (agent_id, client_address, feedback_index)
       );
       CREATE INDEX IF NOT EXISTS reviews_status ON reviews(status);
@@ -109,6 +116,19 @@ export class IndexStore {
         tx_hash      TEXT NOT NULL
       );
     `);
+
+    // Databases from before review content was kept: add the columns and re-verify the valid
+    // reviews, which fetches their content again and fills them in.
+    const columns = this.db.prepare('PRAGMA table_info(reviews)').all() as { name: string }[];
+    const missing = ['comment', 'proof_of_payment'].filter(
+      (name) => !columns.some((c) => c.name === name),
+    );
+    if (missing.length > 0) {
+      this.db.transaction(() => {
+        for (const name of missing) this.db.exec(`ALTER TABLE reviews ADD COLUMN ${name} TEXT`);
+        this.db.exec("UPDATE reviews SET status = 'pending', attempts = 0 WHERE status = 'valid'");
+      })();
+    }
   }
 
   /** Last block fully ingested, or null before the first tick. */
@@ -212,18 +232,37 @@ export class IndexStore {
   markVerified(
     key: { agentId: string; clientAddress: string; feedbackIndex: string },
     verdict:
-      | { status: 'valid'; purchaseTx: string; itemId: string; blockTime: number }
-      | { status: 'invalid'; reason: string }
+      | {
+          status: 'valid';
+          purchaseTx: string;
+          itemId: string;
+          blockTime: number;
+          comment: string | null;
+          proofOfPayment: ProofOfPayment;
+        }
+      | {
+          status: 'invalid';
+          reason: string;
+          // Once the content resolved (a PoP failure), what it said.
+          comment?: string | null;
+          proofOfPayment?: ProofOfPayment;
+        }
       | { status: 'pending'; reason: string }, // transient: retry later
   ): void {
     const purchaseTx = verdict.status === 'valid' ? verdict.purchaseTx.toLowerCase() : null;
     const itemId = verdict.status === 'valid' ? verdict.itemId : null;
     const blockTime = verdict.status === 'valid' ? verdict.blockTime : null;
     const reason = verdict.status === 'valid' ? null : verdict.reason;
+    const comment = verdict.status === 'pending' ? null : (verdict.comment ?? null);
+    const proof =
+      verdict.status !== 'pending' && verdict.proofOfPayment
+        ? JSON.stringify(verdict.proofOfPayment)
+        : null;
     this.db
       .prepare(
         `UPDATE reviews SET status = ?, reason = ?, purchase_tx = ?, item_id = ?,
-           block_time = COALESCE(?, block_time), attempts = attempts + 1
+           block_time = COALESCE(?, block_time), comment = COALESCE(?, comment),
+           proof_of_payment = COALESCE(?, proof_of_payment), attempts = attempts + 1
          WHERE agent_id = ? AND client_address = ? AND feedback_index = ?`,
       )
       .run(
@@ -232,6 +271,8 @@ export class IndexStore {
         purchaseTx,
         itemId,
         blockTime,
+        comment,
+        proof,
         key.agentId,
         key.clientAddress.toLowerCase(),
         key.feedbackIndex,
@@ -284,5 +325,9 @@ function toReview(row: Row): IndexedReview {
     purchaseTx: row.purchase_tx,
     itemId: row.item_id,
     blockTime: row.block_time,
+    comment: row.comment,
+    proofOfPayment: row.proof_of_payment
+      ? (JSON.parse(row.proof_of_payment) as ProofOfPayment)
+      : null,
   };
 }

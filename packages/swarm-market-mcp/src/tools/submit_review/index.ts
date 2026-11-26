@@ -38,7 +38,8 @@ export async function submitReview(args: SubmitReviewArgs, bee: Bee): Promise<To
           { ...params, chunkSize: config.review.logRangeMax },
         ),
       nextFeedIndex: (owner, topic) => nextFeedIndex(bee, owner, topic),
-      uploadChunks: (prepared, stampFor) => uploadReviewChunks(bee, prepared, stampFor),
+      uploadChunks: (prepared, stampFor) =>
+        uploadReviewChunks(bee, prepared, stampFor, chain.wallet.privateKey),
       postFeedback: (params) => chain.erc8004.reputation.postFeedback(params),
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       nowSeconds: () => Math.floor(Date.now() / 1000),

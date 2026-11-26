@@ -70,3 +70,41 @@ export async function loadReputations(
 export function formatScore(score: number, scale: SellerReputation['scale']): string {
   return score.toFixed(Math.max(scale.decimals, Number.isInteger(score) ? 0 : 1));
 }
+
+/** One review behind the score (see marketplace-service `SellerReview`). */
+export interface SellerReview {
+  feedbackIndex: string;
+  clientAddress: string;
+  value: number; // on the marketplace scale
+  /** counted — in the score; pending — not verified yet; not_counted — `reason` says why. */
+  status: 'counted' | 'pending' | 'not_counted';
+  reason: string | null;
+  comment: string | null; // third-party text: render as text, never as HTML
+  reviewedAt: string | null;
+  anchorTx: string; // the giveFeedback transaction: the on-chain proof
+  anchorBlock: number;
+  purchaseTx: string | null;
+  itemId: string | null;
+  feedbackURI: string;
+  feedbackHash: string;
+}
+
+/**
+ * The reviews of one seller, newest first (`GET /v1/sellers/:agentId/reviews`). Fetched on demand
+ * when a reader opens them, like a catalog document — not part of the context's polling. Throws on
+ * any failure; the caller says so and offers a retry.
+ */
+export async function fetchSellerReviews(
+  baseUrl: string,
+  agentId: string,
+  signal?: AbortSignal,
+): Promise<SellerReview[]> {
+  const timeout = AbortSignal.timeout(TIMEOUT_MS);
+  const res = await fetch(`${baseUrl}/v1/sellers/${agentId}/reviews`, {
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+  });
+  if (res.status === 503) throw new Error('The reputation indexer is still catching up.');
+  if (!res.ok) throw new Error(`The marketplace service answered ${res.status}.`);
+  const body = (await res.json()) as { reviews: SellerReview[] };
+  return body.reviews;
+}

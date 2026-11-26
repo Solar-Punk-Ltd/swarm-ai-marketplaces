@@ -90,16 +90,28 @@ export async function prepareReviewUpload(params: {
 /**
  * Uploads the prepared chunks. `stampFor` returns, per address, a marketplace envelope or the
  * reviewer's own batch id (self-funded fallback).
+ *
+ * The feed update goes to Bee's `/soc` endpoint (via `makeSOCWriter`), not `/chunks`: `/chunks`
+ * addresses whatever it receives as a content chunk, so an envelope signed for the SOC address
+ * fails there with "stamp signature is invalid". The writer re-signs the same identifier and
+ * payload with the same key, so the SOC lands at `prepared.socAddress`.
  */
 export async function uploadReviewChunks(
   bee: Bee,
   prepared: PreparedReviewUpload,
   stampFor: (address: string) => EnvelopeWithBatchId | BatchId | string,
+  signerPrivateKey: string,
 ): Promise<void> {
   for (const chunk of prepared.contentChunks) {
     await bee.uploadChunk(stampFor(chunk.address), chunk.data);
   }
-  await bee.uploadChunk(stampFor(prepared.socAddress), prepared.soc);
+  await bee.makeSOCWriter(signerPrivateKey.replace(/^0x/, '')).upload(
+    // bee-js 12 types omit envelopes here, but the request path sends them as
+    // `swarm-postage-stamp` exactly like uploadChunk does.
+    stampFor(prepared.socAddress) as BatchId | string,
+    prepared.identifier.slice(2),
+    prepared.soc.payload.toUint8Array(),
+  );
 }
 
 /** Next free index on `owner`'s feed for `topic` (0 when the feed is empty). */

@@ -32,7 +32,7 @@ type State =
   | { status: 'error'; message: string };
 
 /** Animated dots plus words, so a slow gateway reads as "still working", never as stuck. */
-function Loading() {
+function Loading({ source }: { source: string }) {
   return (
     <p className={styles.catalogNote} role="status">
       <span className={styles.loadingDots} aria-hidden="true">
@@ -40,7 +40,7 @@ function Loading() {
         <span />
         <span />
       </span>
-      Loading from Swarm…
+      Loading from {source}…
     </p>
   );
 }
@@ -49,10 +49,11 @@ async function loadDocument(
   url: string,
   immutable: boolean,
   signal: AbortSignal,
+  answerer: string,
 ): Promise<unknown> {
   if (immutable && cache.has(url)) return cache.get(url);
   const response = await fetch(url, { signal });
-  if (!response.ok) throw new Error(`The gateway answered ${response.status}.`);
+  if (!response.ok) throw new Error(`${answerer} answered ${response.status}.`);
   const text = await response.text();
   if (text.length > MAX_BYTES) throw new Error('The document is too large to show here.');
   const doc: unknown = JSON.parse(text);
@@ -75,6 +76,7 @@ export default function JsonDocumentDialog({
   fallbackTitle,
   immutable = false,
   initial,
+  source = 'Swarm',
   onClose,
 }: {
   url: string;
@@ -89,6 +91,8 @@ export default function JsonDocumentDialog({
    * by the fresh fetch when that lands; if the fetch fails, this copy simply stays.
    */
   initial?: unknown;
+  /** Where the document comes from, for the loading and error lines. Default: a Swarm gateway. */
+  source?: string;
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -113,7 +117,12 @@ export default function JsonDocumentDialog({
       timedOut = true;
       controller.abort();
     }, TIMEOUT_MS);
-    loadDocument(url, immutable, controller.signal)
+    loadDocument(
+      url,
+      immutable,
+      controller.signal,
+      source === 'Swarm' ? 'The gateway' : `The ${source}`,
+    )
       .then((doc) => {
         if (!cancelled) setState({ status: 'ready', doc });
       })
@@ -123,7 +132,7 @@ export default function JsonDocumentDialog({
         setState({
           status: 'error',
           message: timedOut
-            ? 'Swarm is taking unusually long to answer.'
+            ? `${source === 'Swarm' ? 'Swarm' : `The ${source}`} is taking unusually long to answer.`
             : error instanceof SyntaxError
               ? 'The document is not valid JSON.'
               : error instanceof Error
@@ -137,7 +146,7 @@ export default function JsonDocumentDialog({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [url, immutable, hasInitial, attempt]);
+  }, [url, immutable, hasInitial, attempt, source]);
 
   const docName =
     state.status === 'ready' &&
@@ -189,7 +198,7 @@ export default function JsonDocumentDialog({
         </div>
 
         <div className={styles.catalogBody}>
-          {state.status === 'loading' && <Loading />}
+          {state.status === 'loading' && <Loading source={source} />}
           {state.status === 'error' && (
             <div className={styles.catalogError}>
               <p className={styles.catalogNote}>{state.message}</p>

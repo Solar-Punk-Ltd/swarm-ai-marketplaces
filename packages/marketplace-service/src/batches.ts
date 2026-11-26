@@ -33,7 +33,9 @@ export class BatchManager {
     if (row?.status === 'usable' && row.batchId) return { batchId: row.batchId };
 
     if (row?.status === 'pending' && row.batchId) {
-      const batch = await this.bee.getPostageBatch(row.batchId);
+      // Bee answers 400 for a batch it has bought but not yet seen on-chain: that is "not usable
+      // yet", not a server failure.
+      const batch = await this.bee.getPostageBatch(row.batchId).catch(() => ({ usable: false }));
       if (batch.usable) {
         this.store.setBatch(key, 'usable', row.batchId);
         return { batchId: row.batchId };

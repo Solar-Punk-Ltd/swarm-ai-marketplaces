@@ -2,14 +2,19 @@ import type {
   FeedbackRevokedEvent,
   NewFeedbackEvent,
   PoPResult,
+  ProofOfPayment,
   ReviewDocument,
   ReviewVerification,
 } from '@solarpunk/erc8004-adapter';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import Database from 'better-sqlite3';
 import { Wallet } from 'ethers';
 import { IndexStore } from '../src/index-store.js';
 import { ReviewIndexer, type IndexerDeps, type IndexerOptions } from '../src/indexer.js';
 import { ServiceError } from '../src/errors.js';
-import { sellerReputation } from '../src/reputation.js';
+import { reviewProof, sellerReputation, sellerReviews } from '../src/reputation.js';
 
 const SCALE = { min: 0, max: 100, decimals: 0 };
 const alice = Wallet.createRandom().address;
@@ -67,9 +72,9 @@ function revocation(
   };
 }
 
-const okReview = (txHash: string): ReviewVerification => ({
+const okReview = (txHash: string, comment?: string): ReviewVerification => ({
   valid: true,
-  review: { proofOfPayment: { txHash } } as unknown as ReviewDocument,
+  review: { proofOfPayment: { txHash }, comment } as unknown as ReviewDocument,
   reference: 'r',
 });
 
@@ -146,7 +151,7 @@ describe('ReviewIndexer.tick', () => {
     const { store, deps, indexer } = setup({
       head: 300,
       feedback: [feedback(42n, alice, 1n, 80n, 150, 'a1')],
-      reviews: { a1: okReview('0xAA') },
+      reviews: { a1: okReview('0xAA', 'Great data') },
     });
     await indexer.tick();
     await indexer.tick();
@@ -157,6 +162,7 @@ describe('ReviewIndexer.tick', () => {
       purchaseTx: '0xaa',
       itemId: 'item',
       blockTime: 1_800_000_150,
+      comment: 'Great data',
     });
   });
 
@@ -242,6 +248,146 @@ describe('sellerReputation', () => {
       popValidCount: 0,
       pendingCount: 1,
       score: null,
+    });
+  });
+});
+
+describe('sellerReviews', () => {
+  it('lists live reviews newest first, with the same verdicts the score uses', async () => {
+    const { store, deps, indexer } = setup({
+      head: 400,
+      feedback: [
+        feedback(42n, alice, 1n, 80n, 150, 'a1'), // purchase A — counted
+        feedback(42n, alice, 2n, 20n, 160, 'a2'), // purchase A again — not counted
+        feedback(42n, bob, 1n, 60n, 170, 'b1'), // revoked — not listed
+        feedback(42n, bob, 2n, 10n, 180, 'b2'), // PoP fails — not counted
+      ],
+      revocations: [revocation(42n, bob, 1n, 175)],
+      reviews: {
+        a1: okReview('0xA', 'first'),
+        a2: okReview('0xa', 'again'),
+        b2: okReview('0xB', 'junk'),
+      },
+    });
+    // Verified in chain order: a1, a2, b2 (the revoked b1 is never verified).
+    deps.verifyPoP
+      .mockResolvedValueOnce(validPoP)
+      .mockResolvedValueOnce(validPoP)
+      .mockResolvedValueOnce({ valid: false, reason: 'wrong_payer' } as PoPResult);
+    await indexer.tick();
+
+    const { reviews, checkpoint } = sellerReviews(store, '42', SCALE);
+    expect(checkpoint).toEqual({ block: 395 });
+    expect(reviews.map((r) => [r.feedbackIndex, r.status, r.reason, r.comment])).toEqual([
+      ['2', 'not_counted', 'pop:wrong_payer', 'junk'],
+      ['2', 'not_counted', 'purchase_already_reviewed', 'again'],
+      ['1', 'counted', null, 'first'],
+    ]);
+    expect(reviews[2]).toMatchObject({
+      clientAddress: alice.toLowerCase(),
+      value: 80,
+      reviewedAt: new Date((1_800_000_000 + 150) * 1000).toISOString(),
+      anchorTx: `0x${(150).toString(16).padStart(64, '0')}`,
+      anchorBlock: 150,
+      purchaseTx: '0xa',
+      itemId: 'item',
+      feedbackURI: 'a1',
+    });
+    expect(sellerReputation(store, '42', SCALE).popValidCount).toBe(1);
+
+    const anchor = { chainId: '84532', reputationRegistry: '0xRegistry' };
+    // Addresses match case-insensitively.
+    expect(
+      reviewProof(store, '42', alice.toUpperCase().replace('0X', '0x'), '1', SCALE, anchor),
+    ).toEqual({
+      review: {
+        agentId: '42',
+        feedbackIndex: '1',
+        clientAddress: alice.toLowerCase(),
+        value: 80,
+        status: 'counted',
+        reason: null,
+      },
+      anchor: {
+        chainId: '84532',
+        reputationRegistry: '0xRegistry',
+        txHash: `0x${(150).toString(16).padStart(64, '0')}`,
+        block: 150,
+        feedbackURI: 'a1',
+        feedbackHash: '0x00',
+      },
+      proofOfPayment: { txHash: '0xA' },
+    });
+    // A PoP failure still shows what the review claimed.
+    expect(reviewProof(store, '42', bob, '2', SCALE, anchor)).toMatchObject({
+      review: { status: 'not_counted', reason: 'pop:wrong_payer' },
+      proofOfPayment: { txHash: '0xB' },
+    });
+    // Revoked reviews are not served.
+    expect(() => reviewProof(store, '42', bob, '1', SCALE, anchor)).toThrow(ServiceError);
+  });
+
+  it('shows unverified reviews as pending, without content', async () => {
+    const { store, deps, indexer } = setup({
+      head: 300,
+      feedback: [feedback(42n, alice, 1n, 80n, 150, 'a1')],
+    });
+    deps.verifyPoP.mockRejectedValue(new Error('rpc down'));
+    await indexer.tick();
+    expect(sellerReviews(store, '42', SCALE).reviews[0]).toMatchObject({
+      status: 'pending',
+      comment: null,
+      reviewedAt: null,
+    });
+  });
+});
+
+describe('IndexStore migration', () => {
+  it('adds the comment column and re-verifies valid reviews so their comments fill in', () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'index-store-')), 'old.db');
+    const old = new Database(path);
+    old.exec(`
+      CREATE TABLE reviews (
+        agent_id TEXT NOT NULL, client_address TEXT NOT NULL, feedback_index TEXT NOT NULL,
+        block_number INTEGER NOT NULL, log_index INTEGER NOT NULL, tx_hash TEXT NOT NULL,
+        value TEXT NOT NULL, value_decimals INTEGER NOT NULL, feedback_uri TEXT NOT NULL,
+        feedback_hash TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'pending', reason TEXT, attempts INTEGER NOT NULL DEFAULT 0,
+        purchase_tx TEXT, item_id TEXT, block_time INTEGER,
+        PRIMARY KEY (agent_id, client_address, feedback_index)
+      );
+      INSERT INTO reviews VALUES
+        ('42', 'a', '1', 150, 0, '0x1', '80', 0, 'u1', '0x', 0, 'valid', NULL, 1, '0xa', 'i', 1),
+        ('42', 'b', '1', 160, 0, '0x2', '10', 0, 'u2', '0x', 0, 'invalid', 'pop:x', 1, NULL, NULL, NULL);
+    `);
+    old.close();
+
+    const store = new IndexStore(path);
+    expect(
+      store.reviewsFor('42').map((r) => [r.status, r.attempts, r.comment, r.proofOfPayment]),
+    ).toEqual([
+      ['pending', 0, null, null],
+      ['invalid', 1, null, null],
+    ]);
+    store.close();
+    // Opening again must not reset anything a second time.
+    const reopened = new IndexStore(path);
+    reopened.markVerified(
+      { agentId: '42', clientAddress: 'a', feedbackIndex: '1' },
+      {
+        status: 'valid',
+        purchaseTx: '0xa',
+        itemId: 'i',
+        blockTime: 1,
+        comment: 'hi',
+        proofOfPayment: { txHash: '0xa' } as ProofOfPayment,
+      },
+    );
+    reopened.close();
+    expect(new IndexStore(path).reviewsFor('42')[0]).toMatchObject({
+      status: 'valid',
+      comment: 'hi',
+      proofOfPayment: { txHash: '0xa' },
     });
   });
 });

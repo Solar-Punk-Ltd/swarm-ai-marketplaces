@@ -373,6 +373,77 @@
   color: var(--mp-text-muted);
 }
 
+/* A seller's reviews, folded under the details ledger: one entry per review on a hairline. */
+.reviewList {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.review {
+  padding: 0.6rem 0;
+  border-bottom: 1px dotted var(--mp-surface-raised);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+/* Left out of the score: still readable, plainly secondary. */
+.reviewDimmed {
+  opacity: 0.6;
+}
+
+.reviewHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem 0.8rem;
+  font-family: var(--mp-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.reviewStatus {
+  font-family: var(--mp-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mp-text-faint);
+  cursor: help;
+}
+
+.reviewStatusCounted {
+  color: var(--mp-mint);
+}
+
+/* Third-party text: wraps inside the card, never widens it. */
+.reviewComment {
+  margin: 0;
+  font-family: var(--mp-sans);
+  font-size: 13px;
+  color: var(--mp-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.reviewMuted {
+  margin: 0;
+  font-size: 11px;
+  color: var(--mp-text-muted);
+}
+
+.reviewLinks {
+  display: flex;
+  gap: 1rem;
+}
+
+.reviewNote {
+  padding: 0.6rem 0;
+  font-size: 12px;
+  color: var(--mp-text-muted);
+}
+
 /* Small uppercase caption naming what a figure is (seller wallet vs. splitter revenue). */
 .balanceLabel {
   font-family: var(--mp-mono);

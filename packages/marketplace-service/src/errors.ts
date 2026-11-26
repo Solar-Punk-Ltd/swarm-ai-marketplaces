@@ -13,6 +13,7 @@ export type ErrorCode =
   | 'envelope_quota_exceeded'
   | 'batch_unavailable'
   | 'indexer_unavailable'
+  | 'review_not_found'
   | 'internal_error';
 
 interface CodeSpec {
@@ -34,6 +35,8 @@ const CODES: Record<ErrorCode, CodeSpec> = {
   batch_unavailable: { status: 503, retryable: true },
   // The indexer has no checkpoint yet; buyers fall back to reading the chain.
   indexer_unavailable: { status: 503, retryable: true },
+  // No live (anchored, non-revoked) review under that key.
+  review_not_found: { status: 404, retryable: false },
   internal_error: { status: 500, retryable: true },
 };
 

@@ -18,7 +18,7 @@ import { Store } from './db.js';
 import { envelopesHandler } from './envelopes.js';
 import { IndexStore } from './index-store.js';
 import { ReviewIndexer } from './indexer.js';
-import { reputationHandler } from './reputation.js';
+import { reputationHandler, reviewProofHandler, reviewsHandler } from './reputation.js';
 import { publicReviewConfig, reviewConfigHandler } from './reviews-config.js';
 
 // Without SPLITTER_TERMS, accept the terms the factory currently stamps on new clones.
@@ -139,6 +139,22 @@ async function main(): Promise<void> {
       },
     );
     app.get('/v1/sellers/:agentId/reputation', reputationHandler(indexStore, config.score));
+    app.get('/v1/sellers/:agentId/reviews', reviewsHandler(indexStore, config.score));
+    app.get(
+      '/v1/sellers/:agentId/reviews/:clientAddress/:feedbackIndex/proof',
+      reviewProofHandler(indexStore, config.score, {
+        chainId: config.chainId.toString(),
+        reputationRegistry: reviewConfig.reputationRegistry,
+      }),
+    );
+    app.get('/v1/sellers/:agentId/reviews', reviewsHandler(indexStore, config.score));
+    app.get(
+      '/v1/sellers/:agentId/reviews/:clientAddress/:feedbackIndex/proof',
+      reviewProofHandler(indexStore, config.score, {
+        chainId: config.chainId.toString(),
+        reputationRegistry: reviewConfig.reputationRegistry,
+      }),
+    );
     indexer.start();
   }
 

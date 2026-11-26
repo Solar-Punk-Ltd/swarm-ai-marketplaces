@@ -9,6 +9,7 @@ import {
   buildContentChunks,
   prepareReviewUpload,
   referenceFromFeedPayload,
+  uploadReviewChunks,
   type PreparedReviewUpload,
 } from '../src/modules/reviews/feed';
 import {
@@ -148,6 +149,30 @@ describe('prepareReviewUpload', () => {
       .address.toHex();
     const digest = getBytes(keccak256(concat([identifier, `0x${cacAddress}`])));
     expect(verifyMessage(digest, signature)).toBe(buyer.address);
+  });
+});
+
+describe('uploadReviewChunks', () => {
+  it('sends content chunks to /chunks and the feed update to /soc, each with its own stamp', async () => {
+    const { prepared } = await publish(new FakeBee(), { index: 2n });
+    const socUpload = jest.fn(async () => ({}));
+    const fakeBee = {
+      uploadChunk: jest.fn(async () => ({})),
+      makeSOCWriter: jest.fn(() => ({ upload: socUpload })),
+    };
+    const stampFor = (address: string) => `stamp-${address}`;
+
+    await uploadReviewChunks(fakeBee as unknown as Bee, prepared, stampFor, buyer.privateKey);
+
+    expect(fakeBee.uploadChunk.mock.calls).toEqual(
+      prepared.contentChunks.map((c) => [`stamp-${c.address}`, c.data]),
+    );
+    expect(fakeBee.makeSOCWriter).toHaveBeenCalledWith(buyer.privateKey.slice(2));
+    expect(socUpload).toHaveBeenCalledWith(
+      `stamp-${prepared.socAddress}`,
+      prepared.identifier.slice(2),
+      prepared.soc.payload.toUint8Array(),
+    );
   });
 });
 

@@ -365,6 +365,17 @@ Design: repo-root `CLAUDE.md` and `documents/data-enriched-marketplaces.md` Step
   answer for that agent. It never blocks balances or shows an error.
 - The service must allow this dashboard's origin: `CORS_ALLOWED_ORIGINS` on marketplace-service
   (default `*`). If it doesn't, every read is blocked and the feature silently shows nothing.
+- **The reviews themselves fold under the ledger** (`SellerReviews`, from
+  `GET /v1/sellers/:agentId/reviews`): score, counted / verifying / not counted (with the reason on
+  hover), buyer, time, comment, and two links — **on-chain proof**, which opens
+  `JsonDocumentDialog` on the service's `/proof` document (the `giveFeedback` anchor next to the
+  review's Proof-of-Purchase; the link's own href is the explorer page of that transaction, for
+  modified clicks), and **purchase** (the settlement its PoP cites, on the explorer). The proof comes
+  from the service, not a Swarm gateway: review files are usually uploaded through a local Bee and a
+  public gateway serves only allowlisted hashes. Like a
+  catalog document it is fetched on demand: when opened, and again when the context's reputation
+  shows a new, revoked or newly verified review. It never polls on its own. Comments are third-party
+  text: rendered as text, wrapped inside the card, never as HTML.
 
 ## Routing
 

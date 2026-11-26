@@ -66,6 +66,18 @@ describe('BatchManager', () => {
     expect(bee.getPostageBatch).toHaveBeenCalledTimes(2);
   });
 
+  it('treats a batch Bee does not know yet as not usable', async () => {
+    const bee = fakeBee();
+    const manager = new BatchManager(bee, new Store(':memory:'), OPTIONS);
+    await manager.usableBatch(42n);
+    await manager.idle();
+
+    bee.getPostageBatch.mockRejectedValueOnce(new Error('Request failed with status code 400'));
+    expect(await manager.usableBatch(42n)).toEqual({ retryAfter: 60 });
+    bee.getPostageBatch.mockResolvedValue({ usable: true });
+    expect(await manager.usableBatch(42n)).toEqual({ batchId: BATCH });
+  });
+
   it('records a failed purchase and retries it on the next request', async () => {
     const bee = fakeBee({ buyStorage: jest.fn().mockRejectedValueOnce(new Error('no funds')) });
     bee.buyStorage.mockResolvedValue(new BatchId(BATCH));

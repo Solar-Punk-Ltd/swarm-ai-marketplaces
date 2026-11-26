@@ -158,8 +158,15 @@ export class ReviewIndexer {
       store.markVerified(key, { status: 'pending', reason: `rpc: ${message}` });
       return;
     }
+    const comment = result.review.comment ?? null;
+    const { proofOfPayment } = result.review;
     if (!pop.valid) {
-      store.markVerified(key, { status: 'invalid', reason: `pop:${pop.reason}` });
+      store.markVerified(key, {
+        status: 'invalid',
+        reason: `pop:${pop.reason}`,
+        comment,
+        proofOfPayment,
+      });
       return;
     }
 
@@ -168,6 +175,8 @@ export class ReviewIndexer {
       purchaseTx: result.review.proofOfPayment.txHash,
       itemId: pop.itemId,
       blockTime: await this.deps.blockTimestamp(review.blockNumber),
+      comment,
+      proofOfPayment,
     });
   }
 }

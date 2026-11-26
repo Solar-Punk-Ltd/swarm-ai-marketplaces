@@ -14,6 +14,7 @@ import HistoryTable from './HistoryTable';
 import AgentFace from './AgentFace';
 import RoleTip from './RoleTip';
 import ReputationBadge from './ReputationBadge';
+import SellerReviews from './SellerReviews';
 import { formatScore } from '../lib/reputation';
 import styles from './styles.module.css';
 
@@ -191,6 +192,10 @@ export default function SellerRow({ record }: { record: SellerRecord }) {
               </>
             )}
           </dl>
+
+          {reputation && link && (
+            <SellerReviews agentId={link.agentId.toString()} reputation={reputation} />
+          )}
 
           <HistoryTable
             entries={rowHistory}
